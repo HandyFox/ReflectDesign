@@ -24,6 +24,8 @@ export interface SystemFont {
 
 export interface GoogleFontInfo {
   family: string
+  /** Fontsource id, used by the backup download source. */
+  id?: string
   category: string
   popularity: number
   /** e.g. "400", "700", "400i" */
@@ -71,7 +73,7 @@ export interface ReflectAPI {
   /** Google Fonts catalogue (needs internet the first time). */
   listGoogleFonts(): Promise<GoogleFontInfo[]>
   /** Download and install a Google font for this user. */
-  installGoogleFont(family: string, variants: string[]): Promise<GoogleFontFile[]>
+  installGoogleFont(family: string, variants: string[], id?: string): Promise<GoogleFontFile[]>
   /** Fonts previously installed from Google. */
   installedGoogleFonts(): Promise<GoogleFontFile[]>
   /** Templates (built-in + personal). */

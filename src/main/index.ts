@@ -197,7 +197,7 @@ function registerIpc(): void {
   ipcMain.handle('read-font-file', async (_e, path: string) => new Uint8Array(await readFile(path)))
 
   ipcMain.handle('gfonts-list', () => listGoogleFonts())
-  ipcMain.handle('gfonts-install', (_e, family: string, variants: string[]) => installGoogleFont(family, variants))
+  ipcMain.handle('gfonts-install', (_e, family: string, variants: string[], id?: string) => installGoogleFont(family, variants, id))
   ipcMain.handle('gfonts-installed', () => installedGoogleFonts())
 
   ipcMain.handle('list-templates', () => listTemplates())

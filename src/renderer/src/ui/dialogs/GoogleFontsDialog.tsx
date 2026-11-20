@@ -25,6 +25,8 @@ function loadPreview(family: string, sample: string): void {
 export function GoogleFontsDialog({ onClose }: { onClose: () => void }) {
   const [all, setAll] = useState<GoogleFontInfo[] | null>(null)
   const [error, setError] = useState('')
+  const [detail, setDetail] = useState('')
+  const [attempt, setAttempt] = useState(0)
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('All')
   const [sample, setSample] = useState('Welcome Back!')
@@ -34,10 +36,15 @@ export function GoogleFontsDialog({ onClose }: { onClose: () => void }) {
   const [installed, setInstalled] = useState(() => new Set(registeredFamilies()))
 
   useEffect(() => {
-    platform.listGoogleFonts().then(setAll).catch((e) => setError(
-      /desktop app/.test(String(e?.message)) ? e.message : 'Could not reach Google Fonts. Check your internet connection and try again.'
-    ))
-  }, [])
+    setError('')
+    setDetail('')
+    platform.listGoogleFonts().then(setAll).catch((e) => {
+      const msg = String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+      if (/desktop app/.test(msg)) { setError(msg); return }
+      setError('Could not download the font list from Google Fonts or its backup (Fontsource).')
+      setDetail(msg)
+    })
+  }, [attempt])
 
   const shown = useMemo(() => {
     if (!all) return []
@@ -52,13 +59,15 @@ export function GoogleFontsDialog({ onClose }: { onClose: () => void }) {
   const install = async (f: GoogleFontInfo, use: boolean) => {
     setBusy(f.family)
     setError('')
+    setDetail('')
     try {
-      const files = await platform.installGoogleFont(f.family, f.variants)
+      const files = await platform.installGoogleFont(f.family, f.variants, f.id)
       await registerFontFiles(files)
       setInstalled(new Set(registeredFamilies()))
       if (use && hasText()) cmd.formatText('Font', { font: f.family })
     } catch (e) {
-      setError(`Couldn't install ${f.family}: ${(e as Error).message}`)
+      setError(`Couldn't install ${f.family}.`)
+      setDetail(String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     } finally {
       setBusy(null)
     }
@@ -78,7 +87,12 @@ export function GoogleFontsDialog({ onClose }: { onClose: () => void }) {
             </select>
             <input className="gf-sample" value={sample} onChange={(e) => setSample(e.target.value)} placeholder="Preview text" title="Preview text" />
           </div>
-          {error && <div className="error">{error}</div>}
+          {error && (
+            <div className="error">
+              {error} {!all && <button className="btn" onClick={() => setAttempt(attempt + 1)}>Try Again</button>}
+              {detail && <details className="gf-detail"><summary>Technical details</summary><code>{detail}</code></details>}
+            </div>
+          )}
           <div className="gf-list">
             {!all && !error && <div className="muted gf-loading"><Loader2 size={16} className="spin" /> Loading the Google Fonts catalogue…</div>}
             {visible.map((f) => (
