@@ -175,3 +175,52 @@ describe('units', () => {
     expect(formatLength(612, 'in')).toBe('8.5"')
   })
 })
+
+describe('text wrap', () => {
+  it('flows text on both sides of an obstacle', () => {
+    const s = makeStory('aaaa bbbb cccc dddd eeee ffff gggg hhhh', { size: 10 }, { spaceAfter: 0, lineSpacing: { mode: 'multiple', value: 1 } })
+    const box = makeTextBox({ x: 0, y: 0, width: 200, height: 200 }, s.id)
+    box.margins = { top: 0, right: 0, bottom: 0, left: 0 }
+    // Block x 80..120 for the first 20pt.
+    const l = layoutStory(s, [box], mono, (_id, top) => (top < 20 ? [[80, 120]] : []))
+    const first = l.boxes[0].lines.filter((ln) => ln.top === 0)
+    expect(first.length).toBe(2)
+    expect(first[0].x).toBe(0)
+    expect(first[1].x).toBe(120)
+    expect(l.overflow).toBe(false)
+  })
+  it('skips bands that are blocked all the way across', () => {
+    const s = makeStory('aaaa', { size: 10 }, { spaceAfter: 0, lineSpacing: { mode: 'multiple', value: 1 } })
+    const box = makeTextBox({ x: 0, y: 0, width: 100, height: 100 }, s.id)
+    box.margins = { top: 0, right: 0, bottom: 0, left: 0 }
+    const l = layoutStory(s, [box], mono, (_id, top) => (top < 30 ? [[-1e9, 1e9]] : []))
+    expect(l.boxes[0].lines[0].top).toBeGreaterThanOrEqual(30)
+  })
+})
+
+describe('drop caps', () => {
+  it('makes the first letter span several lines and indents them', () => {
+    const s = makeStory('Once upon a time there was a very long sentence that wraps over several lines of text.', { size: 10 }, { spaceAfter: 0, lineSpacing: { mode: 'multiple', value: 1 }, dropCap: { lines: 3, chars: 1 } })
+    const box = makeTextBox({ x: 0, y: 0, width: 120, height: 300 }, s.id)
+    box.margins = { top: 0, right: 0, bottom: 0, left: 0 }
+    const l = layoutStory(s, [box], mono)
+    const lines = l.boxes[0].lines
+    const drop = lines[0].runs.find((r) => r.dy !== undefined)!
+    expect(drop.text).toBe('O')
+    expect(drop.style.size).toBeGreaterThan(20)
+    expect(lines[1].x).toBeGreaterThan(0) // indented beside the cap
+    expect(lines[4].x).toBe(0) // past the cap
+  })
+})
+
+describe('spell check', () => {
+  it('finds misspelled words and suggests fixes', async () => {
+    const { loadSpeller, misspelledIn, suggestions } = await import('@core/spell')
+    await loadSpeller()
+    const s = makeStory('Welcom to our clasroom, NASA and 2nd grade!')
+    const bad = misspelledIn(s).map((w) => w.word)
+    expect(bad).toEqual(['Welcom', 'clasroom'])
+    expect(suggestions('clasroom')[0]).toBe('classroom')
+    expect(suggestions('Thsi')[0]).toBe('This')
+  }, 30000)
+})

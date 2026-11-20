@@ -3,7 +3,7 @@
 // Measuring is delegated to a Measurer so the same layout code runs with the
 // interim Canvas measurer (M1) and the HarfBuzz shaper (M2), and in tests.
 
-import type { CharStyle, ParaAlign, Paragraph, Story, TextBoxObject } from '../model/types'
+import type { CharStyle, ParaAlign, ParaStyle, Paragraph, Story, TextBoxObject } from '../model/types'
 
 export interface FontMetrics {
   ascent: number // points, positive
@@ -26,6 +26,8 @@ export interface LaidRun {
   style: CharStyle
   /** Bullet or number drawn in front of a paragraph; not part of the text. */
   marker?: boolean
+  /** Drop cap: drawn lower than the line's baseline by this many points. */
+  dy?: number
   /** Offset of this run's first char within the paragraph. */
   start: number
   x: number // relative to the box's left edge
@@ -97,20 +99,24 @@ interface Piece {
   hard: boolean
 }
 
-function pieces(p: Paragraph, m: Measurer, f: number): Piece[] {
+function pieces(p: Paragraph, m: Measurer, f: number, skip = 0): Piece[] {
   const out: Piece[] = []
   let offset = 0
   for (const run of p.runs) {
     const re = /(\u2028|[^\S\u2028]+|[^\s-]+-?|-)/g
     let match: RegExpExecArray | null
-    while ((match = re.exec(run.text))) {
+    // Characters before `skip` belong to a drop cap.
+    const from = Math.max(0, skip - offset)
+    const runText = from > 0 ? run.text.slice(from) : run.text
+    const base = offset + Math.min(from, run.text.length)
+    while ((match = re.exec(runText))) {
       const text = match[0]
       const hard = text === '\u2028'
       const isSpace = /^\s+$/.test(text)
       out.push({
         text,
         style: run.style,
-        start: offset + match.index,
+        start: base + match.index,
         width: hard ? 0 : m.measure(displayText(text, run.style), run.style, f),
         breakAfter: isSpace || text.endsWith('-'),
         isSpace,
@@ -184,141 +190,231 @@ interface FlowResult {
   neededHeight: number
 }
 
-function flow(story: Story, chain: TextBoxObject[], m: Measurer, f: number, unlimitedFirst = false): FlowResult {
+/** Horizontal span [x0, x1] in box-local coordinates. */
+export type Interval = [number, number]
+
+/**
+ * Text wrap: the spans of a box that other objects block for a band of
+ * lines (top..bottom, box-local coordinates).
+ */
+export type WrapFn = (boxId: string, top: number, bottom: number) => Interval[]
+
+/** Narrowest gap text will flow into beside a wrapped object. */
+const MIN_SEGMENT = 18
+
+function subtract(range: Interval, blocked: Interval[]): Interval[] {
+  let out: Interval[] = [range]
+  for (const [b0, b1] of blocked) {
+    const next: Interval[] = []
+    for (const [a0, a1] of out) {
+      if (b1 <= a0 || b0 >= a1) { next.push([a0, a1]); continue }
+      if (b0 > a0) next.push([a0, b0])
+      if (b1 < a1) next.push([b1, a1])
+    }
+    out = next
+  }
+  return out
+}
+
+interface Fill {
+  end: number
+  width: number
+}
+
+/** Greedy fill of one line segment starting at piece i. */
+function fillSegment(all: Piece[], i: number, maxW: number, m: Measurer, f: number, force: boolean, onBreakWord: () => void): Fill {
+  let w = 0
+  let j = i
+  let lastBreak = -1
+  let widthAtBreak = 0
+  while (j < all.length) {
+    const pc = all[j]
+    if (!pc.isSpace && w + pc.width > maxW && j > i) break
+    if (!pc.isSpace && pc.width > maxW && j === i) {
+      if (!force) return { end: i, width: 0 }
+      onBreakWord()
+      const split = splitWord(pc, maxW, m, f)
+      if (split.length > 1) {
+        // A single word wider than the column: split it by characters.
+        all.splice(j, 1, ...split)
+        continue
+      }
+      // A single character wider than the column: place it anyway.
+      w += pc.width
+      j++
+      break
+    }
+    w += pc.width
+    if (pc.breakAfter) { lastBreak = j; widthAtBreak = w }
+    j++
+    if (pc.hard) break
+  }
+  let end = j
+  const endedHard = all[j - 1]?.hard === true
+  if (!endedHard && j < all.length && lastBreak >= i && !all[j].isSpace) {
+    end = lastBreak + 1
+    w = widthAtBreak
+  }
+  // Trailing spaces hang past the margin and don't count toward width.
+  while (!endedHard && end < all.length && all[end].isSpace && !all[end].hard) end++
+  return { end, width: w }
+}
+
+function lineHeightFor(ascent: number, descent: number, ps: ParaStyle): number {
+  const natural = ascent + descent
+  return ps.lineSpacing.mode === 'exact' ? ps.lineSpacing.value : natural * ps.lineSpacing.value
+}
+
+function flow(story: Story, chain: TextBoxObject[], m: Measurer, f: number, unlimitedFirst = false, wrap?: WrapFn): FlowResult {
   const areas: Area[] = []
   for (const [i, b] of chain.entries()) {
     for (const a of contentAreas(b)) areas.push(unlimitedFirst && i === 0 ? { ...a, height: 1e7 } : a)
   }
   const boxes: BoxLayout[] = chain.map((b) => ({ boxId: b.id, lines: [] }))
+  const boxIndexOf = new Map(chain.map((b, i) => [b.id, i]))
   let areaIdx = 0
   let y = areas[0]?.top ?? 0
   let brokeWord = false
   let neededHeight = 0
+  let overflow = false
+  // Lines beside a drop cap are indented until they pass its bottom.
+  let drop: { areaIdx: number; bottom: number; width: number } | null = null
 
-  type Pending = Omit<LaidLine, 'top' | 'baseline' | 'x' | 'maxWidth'>
-  const place = (line: Pending, indent: number, indentRight: number, spaceBefore: number): boolean => {
-    while (areaIdx < areas.length) {
-      const a = areas[areaIdx]
-      const top = y === a.top ? y : y + spaceBefore
-      if (top + line.height <= a.top + a.height + 0.01) {
-        const boxIndex = chain.findIndex((b) => b.id === a.boxId)
-        const laid: LaidLine = {
-          ...line,
-          x: a.left + indent,
-          maxWidth: a.width - indent - indentRight,
-          top,
-          baseline: top + (line.height - line.ascent - line.descent) / 2 + line.ascent
-        }
-        boxes[boxIndex].lines.push(laid)
-        y = top + line.height
-        if (boxIndex === 0) neededHeight = Math.max(neededHeight, y)
-        return true
-      }
-      areaIdx++
-      y = areas[areaIdx]?.top ?? 0
-    }
-    return false
+  const nextArea = (): boolean => {
+    areaIdx++
+    if (areaIdx >= areas.length) return false
+    y = areas[areaIdx].top
+    return true
   }
 
-  let overflow = false
   outer: for (let pi = 0; pi < story.paragraphs.length; pi++) {
     const para = story.paragraphs[pi]
     const ps = para.style
-    const all = pieces(para, m, f)
-    const firstStyle = para.runs[0]?.style
+    const text = paragraphText(para)
+    const firstStyle = (para.runs.find((r) => r.text.length > 0) ?? para.runs[0]).style
+    // Drop cap: the first characters become one big run spanning several lines.
+    const dc = ps.dropCap && text.length > 0 ? { lines: Math.max(2, ps.dropCap.lines), chars: Math.max(1, Math.min(ps.dropCap.chars, text.length)) } : null
+    const all = pieces(para, m, f, dc ? dc.chars : 0)
+    const marker = dc ? '' : markerText(story, pi)
+    if (areaIdx >= areas.length) { overflow = true; break }
+    if (y > areas[areaIdx].top) y += ps.spaceBefore
+
+    let dropRun: LaidRun | null = null
+    if (dc) {
+      const bm = m.metrics(firstStyle, f)
+      const L = lineHeightFor(bm.ascent, bm.descent, ps)
+      const capRatio = 0.7
+      const size = ((dc.lines - 1) * L) / capRatio / f + firstStyle.size
+      const dStyle: CharStyle = { ...firstStyle, size, baseline: 'normal' }
+      const dText = text.slice(0, dc.chars)
+      const dw = m.measure(displayText(dText, dStyle), dStyle, f)
+      const gap = firstStyle.size * f * 0.15
+      dropRun = { text: dText, style: dStyle, start: 0, x: -(dw + gap), width: dw, dy: (dc.lines - 1) * L }
+      drop = { areaIdx, bottom: y + dc.lines * L - 0.01, width: dw + gap }
+    }
+
     let i = 0
-    let firstLine = true
-    const marker = markerText(story, pi)
-    do {
-      const area = areas[Math.min(areaIdx, areas.length - 1)]
+    let lineNo = 0
+    let guard = 0
+    while (i < all.length || lineNo === 0) {
+      if (++guard > 100000) { overflow = true; break outer }
+      const area = areas[areaIdx]
       if (!area) { overflow = true; break outer }
-      // With a bullet, the marker hangs at the first-line indent and text starts at the left indent.
-      const indent = ps.indentLeft + (firstLine && !marker ? ps.indentFirst : 0)
-      const maxW = Math.max(1, area.width - indent - ps.indentRight)
-      // Greedy line fill.
-      let w = 0
-      let j = i
-      let lastBreak = -1
-      let widthAtBreak = 0
-      while (j < all.length) {
-        const pc = all[j]
-        if (!pc.isSpace && w + pc.width > maxW && j > i) break
-        if (!pc.isSpace && pc.width > maxW && j === i) {
-          brokeWord = true
-          const split = splitWord(pc, maxW, m, f)
-          if (split.length > 1) {
-            // A single word wider than the column: split it by characters.
-            all.splice(j, 1, ...split)
-            continue
-          }
-          // A single character wider than the column: place it anyway.
-          w += pc.width
-          j++
-          break
+      // Estimate the line height from the next piece to find the wrap band.
+      const est = m.metrics(all[i]?.style ?? firstStyle, f)
+      const estH = lineHeightFor(est.ascent, est.descent, ps)
+      if (y + estH > area.top + area.height + 0.01) {
+        if (!nextArea()) { overflow = true; break outer }
+        continue
+      }
+      let indentL = ps.indentLeft + (lineNo === 0 && !marker ? ps.indentFirst : 0)
+      if (drop && drop.areaIdx === areaIdx && y < drop.bottom) indentL += drop.width
+      const x0 = area.left + indentL
+      const x1 = area.left + area.width - ps.indentRight
+      const blocked = wrap ? wrap(area.boxId, y, y + estH) : []
+      const minSeg = Math.min(MIN_SEGMENT, Math.max(1, x1 - x0))
+      const segs = subtract([x0, Math.max(x0 + 1, x1)], blocked).filter(([a, b]) => b - a >= minSeg)
+      if (segs.length === 0) {
+        // Blocked all the way across: move down past the obstacle.
+        y += Math.max(1, estH / 4)
+        continue
+      }
+      const widest = segs.reduce((best, s) => (s[1] - s[0] > best[1] - best[0] ? s : best), segs[0])
+      const made: LaidLine[] = []
+      const startI = i
+      for (const seg of segs) {
+        if (i >= all.length && !(lineNo === 0 && made.length === 0)) break
+        const maxW = Math.max(1, seg[1] - seg[0])
+        const fill = fillSegment(all, i, maxW, m, f, seg === widest || !wrap, () => { brokeWord = true })
+        if (fill.end === i && i < all.length) continue
+        const linePieces = all.slice(i, fill.end)
+        let visibleW = 0
+        let trailing = true
+        for (let k = linePieces.length - 1; k >= 0; k--) {
+          if (trailing && linePieces[k].isSpace) continue
+          trailing = false
+          visibleW += linePieces[k].width
         }
-        w += pc.width
-        if (pc.breakAfter) { lastBreak = j; widthAtBreak = w }
-        j++
-        if (pc.hard) break
-      }
-      let end = j
-      const endedHard = all[j - 1]?.hard === true
-      if (!endedHard && j < all.length && lastBreak >= i && !all[j].isSpace) {
-        end = lastBreak + 1
-        w = widthAtBreak
-      }
-      // Trailing spaces hang past the margin and don't count toward width.
-      while (!endedHard && end < all.length && all[end].isSpace && !all[end].hard) { end++ }
-      const linePieces = all.slice(i, end)
-      let visibleW = 0
-      let trailing = true
-      for (let k = linePieces.length - 1; k >= 0; k--) {
-        if (trailing && linePieces[k].isSpace) continue
-        trailing = false
-        visibleW += linePieces[k].width
-      }
-      const styles = linePieces.length ? linePieces.map((p) => p.style) : [firstStyle ?? styleAt(para, 0)]
-      let ascent = 0, descent = 0
-      for (const s of styles) {
-        const mt = m.metrics(s, f)
-        ascent = Math.max(ascent, mt.ascent)
-        descent = Math.max(descent, mt.descent)
-      }
-      const natural = ascent + descent
-      const height = ps.lineSpacing.mode === 'exact' ? ps.lineSpacing.value : natural * ps.lineSpacing.value
-      const last = end >= all.length
-      const start = linePieces[0]?.start ?? (all[i]?.start ?? 0)
-      const lineEnd = last ? paragraphText(para).length : (all[end]?.start ?? paragraphText(para).length)
-      const runs: LaidRun[] = []
-      let x = 0
-      for (const pc of linePieces) {
-        const prev = runs.at(-1)
-        if (prev && prev.style === pc.style && prev.start + prev.text.length === pc.start) {
-          prev.text += pc.text
-          prev.width += pc.width
-        } else {
-          runs.push({ text: pc.text, style: pc.style, start: pc.start, x, width: pc.width })
+        let ascent = 0, descent = 0
+        for (const st of linePieces.length ? linePieces.map((p) => p.style) : [firstStyle]) {
+          const mt = m.metrics(st, f)
+          ascent = Math.max(ascent, mt.ascent)
+          descent = Math.max(descent, mt.descent)
         }
-        x += pc.width
+        const runs: LaidRun[] = []
+        let x = 0
+        for (const pc of linePieces) {
+          const prev = runs.at(-1)
+          if (prev && prev.style === pc.style && prev.start + prev.text.length === pc.start) {
+            prev.text += pc.text
+            prev.width += pc.width
+          } else runs.push({ text: pc.text, style: pc.style, start: pc.start, x, width: pc.width })
+          x += pc.width
+        }
+        const isFirstOfPara = lineNo === 0 && made.length === 0
+        if (isFirstOfPara && marker) {
+          const mw = m.measure(marker, firstStyle, f)
+          // Marker sits in the hanging indent (or before the text if there is no room).
+          const gap = Math.max(-ps.indentFirst, mw + firstStyle.size * f * 0.3)
+          runs.unshift({ text: marker, style: firstStyle, start: -1, x: -gap, width: mw, marker: true })
+        }
+        if (isFirstOfPara && dropRun) runs.unshift({ ...dropRun })
+        const last = fill.end >= all.length
+        const start = isFirstOfPara ? 0 : (linePieces[0]?.start ?? text.length)
+        const lineEnd = last ? text.length : (all[fill.end]?.start ?? text.length)
+        made.push({
+          para: pi, start, end: lineEnd, last, align: ps.align, x: seg[0], maxWidth: maxW, width: visibleW,
+          baseline: 0, top: y, height: lineHeightFor(ascent, descent, ps), ascent, descent, spaceExtra: 0, runs
+        })
+        i = fill.end
       }
-      if (firstLine && marker) {
-        const ms = firstStyle ?? styleAt(para, 0)
-        const mw = m.measure(marker, ms, f)
-        // Marker sits in the hanging indent (or before the text if there is no room).
-        const gap = Math.max(-ps.indentFirst, mw + ms.size * f * 0.3)
-        runs.unshift({ text: marker, style: ms, start: -1, x: -gap, width: mw, marker: true })
+      if (made.length === 0) {
+        // Nothing fit in the gaps beside an obstacle: try further down.
+        i = startI
+        y += Math.max(1, estH / 4)
+        continue
       }
-      const ok = place(
-        { para: pi, start, end: lineEnd, last, align: ps.align, width: visibleW, height, ascent, descent, spaceExtra: 0, runs },
-        indent,
-        ps.indentRight,
-        firstLine ? ps.spaceBefore : 0
-      )
-      if (!ok) { overflow = true; break outer }
-      firstLine = false
-      i = end
-    } while (i < all.length)
-    // space after
+      const height = Math.max(...made.map((l) => l.height))
+      const ascent = Math.max(...made.map((l) => l.ascent))
+      const descent = Math.max(...made.map((l) => l.descent))
+      if (y + height > area.top + area.height + 0.01 && y > area.top + 0.01) {
+        // Taller than estimated and doesn't fit: retry this line in the next column/box.
+        i = startI
+        if (!nextArea()) { overflow = true; break outer }
+        continue
+      }
+      const bi = boxIndexOf.get(area.boxId)!
+      for (const l of made) {
+        l.height = height
+        l.ascent = ascent
+        l.descent = descent
+        l.baseline = y + (height - ascent - descent) / 2 + ascent
+        boxes[bi].lines.push(l)
+      }
+      y += height
+      if (bi === 0) neededHeight = Math.max(neededHeight, y)
+      lineNo++
+    }
     y += ps.spaceAfter
   }
 
@@ -326,7 +422,7 @@ function flow(story: Story, chain: TextBoxObject[], m: Measurer, f: number, unli
   for (const [bi, bl] of boxes.entries()) {
     const box = chain[bi]
     for (const line of bl.lines) alignLine(line, story.paragraphs[line.para].style.align)
-    if (box.vAlign !== 'top' && bl.lines.length) {
+    if (box.vAlign !== 'top' && bl.lines.length && !wrap) {
       const areasOfBox = contentAreas(box)
       const used = bl.lines.at(-1)!.top + bl.lines.at(-1)!.height - bl.lines[0].top
       const free = areasOfBox[0].height - used
@@ -362,7 +458,7 @@ function alignLine(line: LaidLine, align: Paragraph['style']['align']): void {
   if (align === 'center') shift = free / 2
   else if (align === 'right') shift = free
   else if ((align === 'justify' && !line.last) || align === 'distribute') {
-    const text = line.runs.filter((r) => !r.marker).map((r) => r.text).join('').replace(/\s+$/, '')
+    const text = line.runs.filter((r) => !r.marker && r.dy === undefined).map((r) => r.text).join('').replace(/\s+$/, '')
     const spaces = (text.match(/ /g) ?? []).length
     if (spaces > 0 && free > 0) line.spaceExtra = free / spaces
   }
@@ -371,7 +467,7 @@ function alignLine(line: LaidLine, align: Paragraph['style']['align']): void {
   if (line.spaceExtra) {
     let x = 0
     for (const r of line.runs) {
-      if (r.marker) continue
+      if (r.marker || r.dy !== undefined) continue
       r.x = x
       const n = (r.text.match(/ /g) ?? []).length
       r.width += n * line.spaceExtra
@@ -381,13 +477,13 @@ function alignLine(line: LaidLine, align: Paragraph['style']['align']): void {
 }
 
 /** Lay out a story through its chain of boxes, applying Text Fit. */
-export function layoutStory(story: Story, chain: TextBoxObject[], m: Measurer): StoryLayout {
+export function layoutStory(story: Story, chain: TextBoxObject[], m: Measurer, wrap?: WrapFn): StoryLayout {
   if (chain.length === 0) return { storyId: story.id, boxes: [], overflow: false, sizeFactor: 1, neededHeight: 0 }
   const mode = chain[0].autofit
   let f = 1
   if (mode === 'bestFit' || mode === 'shrinkOnOverflow') {
     const fits = (k: number) => {
-      const r = flow(story, chain, m, k)
+      const r = flow(story, chain, m, k, false, wrap)
       return !r.overflow && !r.brokeWord
     }
     if (mode === 'shrinkOnOverflow' && fits(1)) f = 1
@@ -402,7 +498,7 @@ export function layoutStory(story: Story, chain: TextBoxObject[], m: Measurer): 
       f = lo
     }
   }
-  const r = flow(story, chain, m, f, mode === 'growBox')
+  const r = flow(story, chain, m, f, mode === 'growBox', wrap)
   return { storyId: story.id, boxes: r.boxes, overflow: r.overflow, sizeFactor: f, neededHeight: r.neededHeight }
 }
 

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { editor as ed } from '@core/editor'
-import type { GroupObject, Id, SceneObject, TextBoxObject } from '@core/model/types'
+import type { GroupObject, Id, PictureObject, SceneObject, TextBoxObject } from '@core/model/types'
 import { boundsOfObjects, makeGroup, newId, objectCorners } from '@core/model/factory'
 import { frameOf, getObject, locate, setFrame, settleScratch, translate, type Frame } from '@core/model/ops'
 import { drawObjects, drawPageBackground, withObjectTransform, type RenderEnv } from '@core/render/canvas'
-import { edgeDistance, handlePoints, hitObject, resizeFrame, toLocal, toPage, type Handle, type Pt } from '@core/geometry/hit'
+import { cropDrag, cropPan, cropScale, edgeDistance, handlePoints, hitObject, resizeFrame, toLocal, toPage, type Crop, type Handle, type Pt } from '@core/geometry/hit'
 import { insertShape, insertTextBox, linkTextBoxes, placeImageFiles, cloneSelectionForDrag } from './workspaceCommands'
 import {
   handleTextKey, pasteText, placeCaret, selectParagraphAt, selectWordAt, startEditing, stopEditing, textPosAt, typeText
@@ -13,6 +13,9 @@ import { caretRect, xAtOffset } from '@core/text/layout'
 import { orderRange, comparePos } from '@core/text/edit'
 import { PT_PER } from '@core/model/units'
 import { useEditor } from '../useEditor'
+import { isMisspelled, misspelledIn, spellReady, wordAt, type WordRange } from '@core/spell'
+
+const misspelledCache = new Map<string, { version: number; words: WordRange[] }>()
 
 const RULER = 22 // px
 const HANDLE = 7 // px
@@ -35,10 +38,17 @@ type Drag =
   | { kind: 'pan'; sx: number; sy: number; ox: number; oy: number }
   | { kind: 'text'; boxId: Id }
   | { kind: 'guide'; id: Id | null; orientation: 'h' | 'v'; pos: number }
+  | { kind: 'crop'; id: Id; handle: Handle; start: Frame; crop0: Crop; flipH: boolean; flipV: boolean }
+  | { kind: 'cropPan'; id: Id; startPt: Pt; start: Frame; crop0: Crop; flipH: boolean; flipV: boolean }
 
 interface View { ox: number; oy: number }
 
-export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: number) => void }) {
+export interface SpellTarget {
+  storyId: Id
+  word: WordRange
+}
+
+export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: number, spell: SpellTarget | null) => void }) {
   const e = useEditor()
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -184,6 +194,9 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
     // Text overflow indicators
     drawOverflowMarkers(ctx)
 
+    // Red squiggles under misspelled words
+    if (ed.view.spelling) drawSpelling(ctx, s)
+
     // Text editing: selection highlight and caret
     if (ed.editing) drawTextSelection(ctx, s)
 
@@ -246,9 +259,63 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
     return { ...b, rotation: 0 }
   }
 
+  function drawCropOverlay(ctx: CanvasRenderingContext2D, o: PictureObject) {
+    const img = o.assetId ? ed.assets.image(o.assetId) : undefined
+    const s = scale()
+    const dpr = window.devicePixelRatio || 1
+    const { kx, ky } = cropScale(o, o.crop)
+    // The hidden (cropped-away) part of the picture, shown faded like Publisher.
+    ctx.save()
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.translate(view.current.ox, view.current.oy)
+    ctx.scale(s, s)
+    withObjectTransform(ctx, o, () => {
+      const fx = -o.crop.left * kx, fy = -o.crop.top * ky
+      ctx.beginPath()
+      ctx.rect(fx, fy, kx, ky)
+      ctx.rect(o.width, 0, -o.width, o.height)
+      ctx.clip('evenodd')
+      ctx.globalAlpha = 0.35
+      if (img) ctx.drawImage(img, fx, fy, kx, ky)
+      ctx.globalAlpha = 1
+      ctx.strokeStyle = '#555'
+      ctx.lineWidth = 1 / s
+      ctx.setLineDash([3 / s, 3 / s])
+      ctx.strokeRect(fx, fy, kx, ky)
+    })
+    ctx.restore()
+    // Black crop handles.
+    ctx.save()
+    ctx.fillStyle = '#000'
+    ctx.strokeStyle = '#fff'
+    for (const { h, p } of handlePoints(o, 0)) {
+      if (h === 'rot') continue
+      const c = toScr(toPage(o, p))
+      const long = 12, thick = 4
+      const ang = (o.rotation * Math.PI) / 180
+      ctx.save()
+      ctx.translate(c.x, c.y)
+      ctx.rotate(ang)
+      const sx = h.includes('w') ? 1 : h.includes('e') ? -1 : 0
+      const sy = h.includes('n') ? 1 : h.includes('s') ? -1 : 0
+      if (sx && sy) {
+        ctx.fillRect(Math.min(0, sx * long), Math.min(0, sy * thick), long, thick)
+        ctx.fillRect(Math.min(0, sx * thick), Math.min(0, sy * long), thick, long)
+      } else if (sx) ctx.fillRect(Math.min(0, sx * thick), -long / 2, thick, long)
+      else ctx.fillRect(-long / 2, Math.min(0, sy * thick), long, thick)
+      ctx.restore()
+    }
+    polygon(ctx, objectCorners(o).map(toScr))
+    ctx.strokeStyle = '#000'
+    ctx.stroke()
+    ctx.restore()
+  }
+
   function drawSelection(ctx: CanvasRenderingContext2D) {
     const objs = ed.selectedObjects
     if (!objs.length) return
+    const cropping = ed.cropping ? getObject(ed.doc, ed.cropping) : null
+    if (cropping && cropping.type === 'picture') { drawCropOverlay(ctx, cropping); return }
     const s = scale()
     ctx.save()
     // Outline each selected object
@@ -318,6 +385,55 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
     }
     walk(ed.page.objects)
     walk(doc.scratch)
+  }
+
+  function drawSpelling(ctx: CanvasRenderingContext2D, s: number) {
+    if (!spellReady()) return
+    const dpr = window.devicePixelRatio || 1
+    const seen = new Set<string>()
+    const boxes: TextBoxObject[] = []
+    const walk = (list: SceneObject[]) => list.forEach((o) => { if (o.type === 'group') walk(o.children); else if (o.type === 'text') boxes.push(o) })
+    walk(ed.page.objects)
+    for (const box of boxes) {
+      const story = ed.doc.stories[box.storyId]
+      const layout = ed.text.layout(ed.doc, box.storyId)
+      const bl = layout?.boxes.find((b) => b.boxId === box.id)
+      if (!story || !layout || !bl) continue
+      if (!seen.has(box.storyId)) seen.add(box.storyId)
+      let bad = misspelledCache.get(box.storyId)
+      if (!bad || bad.version !== ed.version) {
+        bad = { version: ed.version, words: misspelledIn(story) }
+        misspelledCache.set(box.storyId, bad)
+      }
+      // Don't flag the word being typed.
+      const caret = ed.editing?.storyId === box.storyId ? ed.editing.caret : null
+      const words = bad.words.filter((w) => !(caret && caret.para === w.para && caret.offset >= w.start && caret.offset <= w.end))
+      if (!words.length) continue
+      ctx.save()
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.translate(view.current.ox, view.current.oy)
+      ctx.scale(s, s)
+      withObjectTransform(ctx, box, () => {
+        ctx.strokeStyle = '#e81123'
+        ctx.lineWidth = 1 / s
+        for (const line of bl.lines) {
+          for (const w of words) {
+            if (w.para !== line.para || w.end <= line.start || w.start >= line.end) continue
+            const x1 = xAtOffset(line, Math.max(w.start, line.start), ed.measurer, layout.sizeFactor)
+            const x2 = xAtOffset(line, Math.min(w.end, line.end), ed.measurer, layout.sizeFactor)
+            const y = line.baseline + Math.max(1.5, line.descent * 0.4)
+            const amp = 1.2 / s, step = 2.5 / s
+            ctx.beginPath()
+            for (let x = x1, k = 0; x <= x2; x += step, k++) {
+              const yy = y + (k % 2 ? amp : -amp)
+              if (k === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy)
+            }
+            ctx.stroke()
+          }
+        }
+      })
+      ctx.restore()
+    }
   }
 
   function drawTextSelection(ctx: CanvasRenderingContext2D, s: number) {
@@ -651,6 +767,25 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
       return
     }
 
+    // Crop mode: black handles crop, dragging the picture pans it inside the frame.
+    if (ed.cropping) {
+      const pic = getObject(ed.doc, ed.cropping)
+      if (pic && pic.type === 'picture') {
+        const h = handleAt(sx, sy)
+        if (h && h !== 'rot') {
+          drag.current = { kind: 'crop', id: pic.id, handle: h, start: frameOf(pic), crop0: { ...pic.crop }, flipH: pic.flipH, flipV: pic.flipV }
+          ed.beginLive('Crop')
+          return
+        }
+        if (hitObject(pic, p)) {
+          drag.current = { kind: 'cropPan', id: pic.id, startPt: p, start: frameOf(pic), crop0: { ...pic.crop }, flipH: pic.flipH, flipV: pic.flipV }
+          ed.beginLive('Crop')
+          return
+        }
+      }
+      ed.cropping = null
+    }
+
     // Resize / rotate handles
     const handle = ed.editing ? null : handleAt(sx, sy)
     const editingHandle = ed.editing ? handleAt(sx, sy) : null
@@ -826,6 +961,24 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
         draw()
         return
       }
+      case 'crop': {
+        const r = cropDrag(d.start, d.crop0, d.handle, p, d.flipH, d.flipV)
+        ed.liveChange((doc) => {
+          const o = getObject(doc, d.id)
+          if (!o || o.type !== 'picture') return
+          o.x = r.frame.x; o.y = r.frame.y; o.width = r.frame.width; o.height = r.frame.height
+          o.crop = r.crop
+        })
+        return
+      }
+      case 'cropPan': {
+        const c = cropPan(d.start, d.crop0, p.x - d.startPt.x, p.y - d.startPt.y, d.flipH, d.flipV)
+        ed.liveChange((doc) => {
+          const o = getObject(doc, d.id)
+          if (o && o.type === 'picture') o.crop = c
+        })
+        return
+      }
     }
   }
 
@@ -850,6 +1003,8 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
         break
       case 'resize':
       case 'rotate':
+      case 'crop':
+      case 'cropPan':
         ed.endLive()
         break
       case 'marquee': {
@@ -915,7 +1070,11 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
     if (spaceDown.current || ed.tool.kind === 'pan' || d.kind === 'pan') cursor = d.kind === 'pan' ? 'grabbing' : 'grab'
     else if (ed.tool.kind === 'textbox' || ed.tool.kind === 'shape') cursor = 'crosshair'
     else if (ed.tool.kind === 'link') cursor = 'copy'
-    else if (d.kind === 'move') cursor = 'move'
+    else if (d.kind === 'move' || d.kind === 'cropPan') cursor = 'move'
+    else if (ed.cropping && !handleAt(sx, sy)) {
+      const pic = getObject(ed.doc, ed.cropping)
+      cursor = pic && hitObject(pic, p) ? 'move' : 'default'
+    }
     else if (d.kind === 'text') cursor = 'text'
     else {
       const h = handleAt(sx, sy)
@@ -1027,7 +1186,22 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
           }
         }}
         onWheel={onWheel}
-        onContextMenu={(ev) => { ev.preventDefault(); onContextMenu(ev.clientX, ev.clientY) }}
+        onContextMenu={(ev) => {
+          ev.preventDefault()
+          // Right-clicking a misspelled word offers suggestions.
+          let spell: SpellTarget | null = null
+          const { sx, sy } = eventPt(ev)
+          const p = toPt(sx, sy)
+          const hit = objectAt(p)
+          if (hit && hit.type === 'text' && spellReady()) {
+            const l = toLocal(hit, p)
+            const pos = textPosAt(hit, l.x, l.y)
+            const story = ed.doc.stories[hit.storyId]
+            const w = pos && story ? wordAt(story, pos.para, pos.offset) : null
+            if (w && isMisspelled(w.word)) spell = { storyId: hit.storyId, word: w }
+          }
+          onContextMenu(ev.clientX, ev.clientY, spell)
+        }}
         onDragOver={(ev) => ev.preventDefault()}
         onDrop={onDrop}
       />

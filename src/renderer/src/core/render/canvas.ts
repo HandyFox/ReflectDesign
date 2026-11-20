@@ -224,10 +224,10 @@ function drawLine(ctx: Ctx, env: RenderEnv, line: LaidLine, layout: StoryLayout)
     const size = effectiveSize(s, f)
     const shift = s.baseline === 'superscript' ? -s.size * f * 0.33 : s.baseline === 'subscript' ? s.size * f * 0.14 : 0
     const x = line.x + run.x
-    const y = line.baseline + shift
+    const y = line.baseline + shift + (run.dy ?? 0)
     const text = displayText(run.text, s)
     ctx.save()
-    if (s.highlight) {
+    if (s.highlight && run.dy === undefined) {
       ctx.fillStyle = rgba(s.highlight, 1)
       ctx.fillRect(x, line.top, run.width, line.height)
     }

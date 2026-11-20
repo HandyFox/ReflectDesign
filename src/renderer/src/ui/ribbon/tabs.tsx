@@ -16,7 +16,7 @@ import { toSvgPath } from '@core/geometry/path'
 import { makeStory } from '@core/model/factory'
 import { BigButton, Check, Col, MenuHeader, MenuItem, MenuSeparator, RibbonGroup, SmallButton } from './controls'
 import { ColorButton } from './ColorPicker'
-import { ArrangeGroup, FontGroup, ParagraphGroup, SizeGroup, hasText } from './groups'
+import { ArrangeGroup, FontGroup, ParagraphGroup, SizeGroup, currentParaStyle, hasText } from './groups'
 import { useDialogs } from '../dialogs/DialogHost'
 import { typeText } from '@core/textEditing'
 
@@ -284,10 +284,17 @@ function BackgroundButton() {
 // ---------- REVIEW ----------
 
 export function ReviewTab() {
+  const dialogs = useDialogs()
   return (
     <>
       <RibbonGroup label="Proofing">
-        <BigButton icon={SpellCheck} label="Spelling" disabled title={soon} />
+        <BigButton icon={SpellCheck} label="Spelling" color="#1f5fa8" shortcut="F7" split onClick={() => dialogs.open('spelling')}
+          menu={(close) => (
+            <>
+              <MenuItem label="Spelling..." shortcut="F7" onClick={() => { dialogs.open('spelling'); close() }} />
+              <MenuItem label="Check Spelling As You Type" checked={ed.view.spelling} onClick={() => { ed.view.spelling = !ed.view.spelling; ed.touch(); close() }} />
+            </>
+          )} />
         <Col>
           <SmallButton icon={BookOpen} label="Research" disabled title={soon} />
           <SmallButton icon={BookOpen} label="Thesaurus" disabled title={soon} />
@@ -390,7 +397,8 @@ export function TextBoxFormatTab() {
         <TextEffectButtons enabled={hasText()} />
       </RibbonGroup>
       <RibbonGroup label="Typography">
-        <BigButton icon={TypeOutline} label="Drop Cap" disabled title={soon} />
+        <BigButton icon={TypeOutline} label="Drop Cap" disabled={!hasText()}
+          menu={(close) => <DropCapGallery close={close} />} />
         <Col>
           <SmallButton label="Ligatures" iconNode={<span className="typo">ﬁ</span>} disabled title={soon} />
           <SmallButton label="Stylistic Sets" iconNode={<span className="typo">𝒶</span>} disabled title={soon} />
@@ -400,6 +408,25 @@ export function TextBoxFormatTab() {
       <ArrangeGroup wrap />
       <SizeGroup />
     </>
+  )
+}
+
+function DropCapGallery({ close }: { close: () => void }) {
+  const current = currentParaStyle()?.dropCap?.lines ?? 0
+  return (
+    <div className="dropcap-grid">
+      {[0, 2, 3, 4, 5].map((n) => (
+        <button key={n} className={`dropcap-btn ${current === n ? 'on' : ''}`} title={n ? `Dropped ${n} lines` : 'No Drop Cap'}
+          onClick={() => { cmd.setDropCap(n || null); close() }}>
+          {n ? (
+            <svg width="54" height="46" viewBox="0 0 54 46">
+              <text x="2" y={n * 9 + 1} fontSize={n * 9 + 2} fontFamily="Georgia, serif" fontWeight="bold" fill="#1f5fa8">A</text>
+              {Array.from({ length: 5 }, (_, i) => <rect key={i} x={i < n ? 2 + (n * 9 + 2) * 0.72 + 2 : 2} y={2 + i * 9} width={i < n ? 50 - (n * 9 + 2) * 0.72 - 2 : 50} height="3" fill="#9a9a9a" />)}
+            </svg>
+          ) : <span className="dropcap-none">None</span>}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -519,7 +546,15 @@ export function PictureFormatTab() {
       </RibbonGroup>
       <ArrangeGroup wrap />
       <RibbonGroup label="Crop">
-        <BigButton icon={Crop} label="Crop" disabled title={soon} />
+        <BigButton icon={Crop} label="Crop" split active={!!ed.cropping} disabled={!pic?.assetId} onClick={cmd.toggleCrop}
+          menu={(close) => (
+            <>
+              <MenuItem icon={Crop} label={ed.cropping ? 'Finish Cropping' : 'Crop'} onClick={() => { cmd.toggleCrop(); close() }} />
+              <MenuItem label="Fill" onClick={() => { cmd.cropFitFill('fill'); close() }} />
+              <MenuItem label="Fit" onClick={() => { cmd.cropFitFill('fit'); close() }} />
+              <MenuItem label="Clear Crop" onClick={() => { cmd.cropFitFill('clear'); close() }} />
+            </>
+          )} />
       </RibbonGroup>
       <SizeGroup />
     </>

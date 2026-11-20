@@ -17,6 +17,18 @@ feel like **Microsoft Publisher 2016/2019** on Linux (Ubuntu), Windows and macOS
 - Your system fonts plus a built-in Google Fonts browser
 - Starter templates and Save As Template
 
+## Install on Ubuntu
+
+Every change is built automatically on GitHub. To install (or update to) the
+latest build:
+
+```bash
+wget -O /tmp/reflectdesign.deb https://github.com/HandyFox/ReflectDesign/releases/download/latest/ReflectDesign-linux-amd64.deb && sudo apt install -y /tmp/reflectdesign.deb
+```
+
+Then open **ReflectDesign** from the app menu. An AppImage is also on the
+[latest release](https://github.com/HandyFox/ReflectDesign/releases/tag/latest).
+
 ## Development
 
 Requires Node.js 20+.

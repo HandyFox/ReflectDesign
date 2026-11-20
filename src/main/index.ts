@@ -1,8 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { join, basename } from 'node:path'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { listSystemFonts } from './fonts'
 import { listTemplates, personalTemplateDir } from './templates'
+import { installGoogleFont, installedGoogleFonts, listGoogleFonts } from './googleFonts'
 
 let mainWindow: BrowserWindow | null = null
 let dirty = false
@@ -153,8 +155,50 @@ function registerIpc(): void {
     return res.filePath
   })
 
+  ipcMain.handle('export-pdf', async (_e, html: string, suggestedName: string) => {
+    if (!mainWindow) return null
+    // Automated tests save without a dialog.
+    const testDir = process.env['REFLECTDESIGN_TEST_SAVE_DIR']
+    const res = testDir
+      ? { canceled: false, filePath: join(testDir, suggestedName) }
+      : await dialog.showSaveDialog(mainWindow, {
+        title: 'Save as PDF',
+        defaultPath: suggestedName,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }]
+      })
+    if (res.canceled || !res.filePath) return null
+    const pdf = await withPrintWindow(html, (win) =>
+      win.webContents.printToPDF({
+        printBackground: true,
+        preferCSSPageSize: true,
+        margins: { top: 0, bottom: 0, left: 0, right: 0 }
+      })
+    )
+    await writeFile(res.filePath, pdf)
+    return res.filePath
+  })
+
+  ipcMain.handle('print-html', async (_e, html: string, paperWidth: number, paperHeight: number) => {
+    return withPrintWindow(html, (win) => new Promise<boolean>((resolve) => {
+      win.webContents.print(
+        {
+          silent: false,
+          printBackground: true,
+          margins: { marginType: 'none' },
+          // Electron wants microns.
+          pageSize: { width: Math.round((paperWidth / 72) * 25400), height: Math.round((paperHeight / 72) * 25400) }
+        },
+        (ok) => resolve(ok)
+      )
+    }))
+  })
+
   ipcMain.handle('list-fonts', () => listSystemFonts())
   ipcMain.handle('read-font-file', async (_e, path: string) => new Uint8Array(await readFile(path)))
+
+  ipcMain.handle('gfonts-list', () => listGoogleFonts())
+  ipcMain.handle('gfonts-install', (_e, family: string, variants: string[]) => installGoogleFont(family, variants))
+  ipcMain.handle('gfonts-installed', () => installedGoogleFonts())
 
   ipcMain.handle('list-templates', () => listTemplates())
   ipcMain.handle('read-template', async (_e, path: string) => new Uint8Array(await readFile(path)))
@@ -173,6 +217,23 @@ function registerIpc(): void {
     dirty = false
     mainWindow?.close()
   })
+}
+
+/** Load HTML in a hidden window, wait for fonts and images, run `fn`, clean up. */
+async function withPrintWindow<T>(html: string, fn: (win: BrowserWindow) => Promise<T>): Promise<T> {
+  const file = join(tmpdir(), `reflectdesign-print-${process.pid}-${Date.now()}.html`)
+  await writeFile(file, html, 'utf8')
+  const win = new BrowserWindow({ show: false, webPreferences: { offscreen: false, contextIsolation: true, sandbox: true } })
+  try {
+    await win.loadFile(file)
+    await win.webContents.executeJavaScript(
+      'Promise.all([document.fonts.ready, ...Array.from(document.querySelectorAll("image")).map((i) => new Promise((r) => { const im = new Image(); im.onload = im.onerror = r; im.src = i.getAttribute("href") }))]).then(() => new Promise((r) => setTimeout(r, 150)))'
+    )
+    return await fn(win)
+  } finally {
+    win.destroy()
+    rm(file, { force: true }).catch(() => {})
+  }
 }
 
 // A file passed on the command line (double-clicked in the file manager).

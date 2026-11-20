@@ -39,6 +39,8 @@ export interface ViewOptions {
   pageNav: boolean
   scratch: boolean
   baselines: boolean
+  /** Check spelling as you type (red squiggles). */
+  spelling: boolean
   snapToGuides: boolean
   snapToObjects: boolean
 }
@@ -58,6 +60,8 @@ export class Editor {
   unit: Unit = 'in'
   tool: Tool = { kind: 'select' }
   editing: TextEditState | null = null
+  /** Picture in crop mode (Picture Tools › Crop). */
+  cropping: Id | null = null
   backstage: BackstageView = null
   /** Request from a command for the canvas (e.g. 'fit-page'). */
   viewRequest: { kind: 'fit-page' | 'page-width' | 'fit-selection' | 'center'; n: number } | null = null
@@ -68,6 +72,7 @@ export class Editor {
     pageNav: true,
     scratch: true,
     baselines: false,
+    spelling: true,
     snapToGuides: true,
     snapToObjects: true
   }
@@ -86,6 +91,7 @@ export class Editor {
 
   constructor() {
     this.assets.onLoaded = () => this.touch()
+    this.text.assets = this.assets
   }
 
   // ---------- subscription ----------
@@ -189,6 +195,7 @@ export class Editor {
     this.selection = s.selection.filter((id) => !!locate(this.doc, id))
     this.pageIndex = Math.min(s.pageIndex, this.doc.pages.length - 1)
     this.editing = null
+    this.cropping = null
     this.text.invalidate()
   }
 
@@ -213,6 +220,7 @@ export class Editor {
 
   select(ids: Id[], opts: { keepEditing?: boolean } = {}): void {
     this.selection = [...new Set(ids)]
+    if (this.cropping && !this.selection.includes(this.cropping)) this.cropping = null
     if (!opts.keepEditing && this.editing && !ids.includes(this.editing.boxId)) this.editing = null
     this.touch()
   }
@@ -220,6 +228,7 @@ export class Editor {
   clearSelection(): void {
     this.selection = []
     this.editing = null
+    this.cropping = null
     this.touch()
   }
 

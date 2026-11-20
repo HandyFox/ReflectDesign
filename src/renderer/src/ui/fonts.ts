@@ -1,23 +1,40 @@
 import { useEffect, useState } from 'react'
 import { platform } from '../platform'
 import { editor } from '@core/editor'
+import { onFontsChanged, registerFontFiles, registeredFamilies } from '@core/fontRegistry'
 
 let families: string[] | null = null
 let loading: Promise<string[]> | null = null
 const listeners = new Set<(f: string[]) => void>()
 
+let systemFamilies: string[] = []
+
+function publish(): void {
+  const set = new Set([...systemFamilies, ...registeredFamilies()])
+  families = [...set].sort((a, b) => a.localeCompare(b))
+  listeners.forEach((l) => l(families!))
+}
+
 export function loadFonts(): Promise<string[]> {
   if (families) return Promise.resolve(families)
   if (!loading) {
-    loading = platform.listFonts().then((fonts) => {
-      const set = new Set(fonts.map((f) => f.family))
-      families = [...set].sort((a, b) => a.localeCompare(b))
-      listeners.forEach((l) => l(families!))
-      return families
-    }).catch(() => (families = []))
+    loading = (async () => {
+      try { systemFamilies = [...new Set((await platform.listFonts()).map((f) => f.family))] } catch { systemFamilies = [] }
+      // Fonts installed earlier from Google Fonts.
+      try { await registerFontFiles(await platform.installedGoogleFonts()) } catch { /* none */ }
+      publish()
+      return families!
+    })()
   }
   return loading
 }
+
+onFontsChanged(() => {
+  if (families) publish()
+  editor.measurer.reset()
+  editor.text.invalidate()
+  editor.touch()
+})
 
 export function useFontFamilies(): string[] {
   const [list, setList] = useState<string[]>(families ?? [])

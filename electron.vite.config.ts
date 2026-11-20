@@ -5,7 +5,9 @@ import react from '@vitejs/plugin-react'
 const alias = {
   '@core': resolve(import.meta.dirname, 'src/renderer/src/core'),
   '@ui': resolve(import.meta.dirname, 'src/renderer/src/ui'),
-  '@shared': resolve(import.meta.dirname, 'src/shared')
+  '@shared': resolve(import.meta.dirname, 'src/shared'),
+  // Hunspell files for spell check (the package only exports a Node loader).
+  'dictionary-en-files': resolve(import.meta.dirname, 'node_modules/dictionary-en')
 }
 
 export default defineConfig({

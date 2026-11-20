@@ -2,11 +2,16 @@ import type { Id, RDocument, TextBoxObject } from '../model/types'
 import { chainOf, getObject } from '../model/ops'
 import type { Measurer, StoryLayout } from './layout'
 import { layoutStory } from './layout'
+import { buildWrapFn } from './wrap'
+import type { AssetStore } from '../assets'
 
 /** Caches story layouts for one document version. */
 export class TextEngine {
   private cache = new Map<Id, StoryLayout>()
   private version = -1
+
+  /** Pictures, for wrapping text around their visible outline. */
+  assets?: AssetStore
 
   constructor(public measurer: Measurer) {}
 
@@ -33,7 +38,8 @@ export class TextEngine {
     if (!l) {
       const story = doc.stories[storyId]
       if (!story) return null
-      l = layoutStory(story, this.chain(doc, storyId), this.measurer)
+      const chain = this.chain(doc, storyId)
+      l = layoutStory(story, chain, this.measurer, buildWrapFn(doc, chain, this.assets))
       this.cache.set(storyId, l)
     }
     return l

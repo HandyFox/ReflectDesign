@@ -6,7 +6,7 @@ import {
   IndentIncrease, Italic, List, ListOrdered, Lock, MoveHorizontal, MoveVertical, RotateCcw, RotateCw,
   SendToBack, Strikethrough, Subscript, Superscript, Underline, Ungroup, WrapText, AlignHorizontalJustifyCenter,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal,
-  AlignEndHorizontal, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Type
+  AlignEndHorizontal, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Type, Globe
 } from 'lucide-react'
 import { editor as ed } from '@core/editor'
 import * as cmd from '@core/commands'
@@ -17,6 +17,7 @@ import { frameOf, setFrame } from '@core/model/ops'
 import { BigButton, Col, Combo, MeasureField, MenuItem, MenuSeparator, RibbonGroup, Row, SmallButton } from './controls'
 import { ColorButton } from './ColorPicker'
 import { FONT_SIZES, ensureFont, useFontFamilies } from '../fonts'
+import { useDialogs } from '../dialogs/DialogHost'
 
 /** Formatting at the caret / selection / selected text boxes. */
 export function currentCharStyle(): Partial<CharStyle> | null {
@@ -52,6 +53,7 @@ export function hasText(): boolean {
 }
 
 export function FontGroup() {
+  const dialogs = useDialogs()
   const families = useFontFamilies()
   const cs = currentCharStyle()
   const enabled = hasText()
@@ -79,6 +81,7 @@ export function FontGroup() {
           />
           <SmallButton iconNode={<span className="aa">A<sup>▲</sup></span>} title="Increase Font Size" shortcut="Ctrl+Shift+>" disabled={!enabled} onClick={() => fmt('Grow Font', { size: nextSize(size ?? 10, 1) })} />
           <SmallButton iconNode={<span className="aa small">A<sup>▼</sup></span>} title="Decrease Font Size" shortcut="Ctrl+Shift+<" disabled={!enabled} onClick={() => fmt('Shrink Font', { size: nextSize(size ?? 10, -1) })} />
+          <SmallButton icon={Globe} title="Get more fonts from Google Fonts" onClick={() => dialogs.open('googleFonts')} />
           <SmallButton icon={Eraser} title="Clear All Formatting" disabled={!enabled} onClick={() => fmt('Clear Formatting', { bold: false, italic: false, underline: 'none', strike: false, baseline: 'normal', caps: 'normal', highlight: null, tracking: 0, scale: 100, textOutline: null, textShadow: null, textGlow: null, textFill: null })} />
         </Row>
         <Row>

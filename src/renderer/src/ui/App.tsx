@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { editor as ed } from '@core/editor'
 import * as cmd from '@core/commands'
 import { Ribbon } from './ribbon/Ribbon'
-import { Workspace, isTypingTarget } from './workspace/Workspace'
+import { Workspace, isTypingTarget, type SpellTarget } from './workspace/Workspace'
+import { loadSpeller, onSpellReady } from '@core/spell'
 import { PageNav } from './PageNav'
 import { StatusBar } from './StatusBar'
 import { Backstage } from './Backstage'
 import { ContextMenu } from './ContextMenu'
-import { DialogHost } from './dialogs/DialogHost'
+import { DialogHost, useDialogs } from './dialogs/DialogHost'
 import { platform } from '../platform'
 import { useEditor } from './useEditor'
 import { loadFonts } from './fonts'
@@ -15,10 +16,22 @@ import { startEditing, typeText } from '@core/textEditing'
 
 export function App() {
   useEditor()
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  return (
+    <DialogHost>
+      <AppBody />
+    </DialogHost>
+  )
+}
+
+function AppBody() {
+  const dialogs = useDialogs()
+  const openSpelling = () => dialogs.open('spelling')
+  const [menu, setMenu] = useState<{ x: number; y: number; spell: SpellTarget | null } | null>(null)
 
   useEffect(() => {
     loadFonts()
+    loadSpeller()
+    onSpellReady(() => ed.touch())
     platform.onAppCommand(async (c, arg) => {
       if (c === 'save-and-close') {
         if (await cmd.save()) platform.forceClose()
@@ -41,6 +54,7 @@ export function App() {
       if (ctrl && key === 'p') { ev.preventDefault(); ed.backstage = 'print'; ed.touch(); return }
       if (ctrl && key === 'z' && !ev.shiftKey) { ev.preventDefault(); ed.undo(); return }
       if (ctrl && (key === 'y' || (key === 'z' && ev.shiftKey))) { ev.preventDefault(); ed.redo(); return }
+      if (ev.key === 'F7') { ev.preventDefault(); openSpelling(); return }
       if (ev.key === 'F9') { ev.preventDefault(); ed.zoom === 1 ? ed.requestView('fit-page') : ed.setZoom(1); return }
       if (ed.backstage) { if (ev.key === 'Escape') { ed.backstage = null; ed.touch() } return }
       if (ed.editing || isTypingTarget(ev.target)) return
@@ -61,6 +75,7 @@ export function App() {
         return
       }
       if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); cmd.deleteSelection(); return }
+      if (ed.cropping && (ev.key === 'Escape' || ev.key === 'Enter')) { ed.cropping = null; ed.setStatus(''); return }
       if (ev.key === 'Escape') { ed.setTool({ kind: 'select' }); ed.clearSelection(); return }
       if (ev.key.startsWith('Arrow') && ed.selection.length) {
         ev.preventDefault()
@@ -100,17 +115,17 @@ export function App() {
   }, [])
 
   return (
-    <DialogHost>
+    <>
       <div className="app">
         <Ribbon />
         <div className="body">
           <PageNav />
-          <Workspace onContextMenu={(x, y) => setMenu({ x, y })} />
+          <Workspace onContextMenu={(x, y, spell) => setMenu({ x, y, spell })} />
         </div>
         <StatusBar />
         <Backstage />
-        {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
+        {menu && <ContextMenu x={menu.x} y={menu.y} spell={menu.spell} onClose={() => setMenu(null)} />}
       </div>
-    </DialogHost>
+    </>
   )
 }

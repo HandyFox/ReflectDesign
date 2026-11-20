@@ -24,6 +24,18 @@ function download(bytes: Uint8Array, name: string, mime: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 10000)
 }
 
+/** Browser test mode: use the browser's print dialog ("Save as PDF"). */
+function printInIframe(html: string): void {
+  const frame = document.createElement('iframe')
+  frame.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-10px'
+  document.body.appendChild(frame)
+  frame.srcdoc = html
+  frame.onload = () => {
+    frame.contentWindow?.print()
+    setTimeout(() => frame.remove(), 60000)
+  }
+}
+
 const BROWSER_TEMPLATES_KEY = 'reflectdesign.templates'
 
 const browserApi: ReflectAPI = {
@@ -46,6 +58,14 @@ const browserApi: ReflectAPI = {
     download(bytes, suggestedName, ext === 'pdf' ? 'application/pdf' : `image/${ext}`)
     return suggestedName
   },
+  async exportPdf(html) {
+    printInIframe(html)
+    return 'print dialog'
+  },
+  async printHtml(html) {
+    printInIframe(html)
+    return true
+  },
   async listFonts(): Promise<SystemFont[]> {
     // Chromium's Local Font Access API, when allowed.
     const q = (window as any).queryLocalFonts
@@ -57,6 +77,15 @@ const browserApi: ReflectAPI = {
     }
     return ['Arial', 'Calibri', 'Cambria', 'Comic Sans MS', 'Courier New', 'Georgia', 'Impact', 'Times New Roman', 'Trebuchet MS', 'Verdana']
       .map((family) => ({ family, style: 'Regular', weight: 400, italic: false, path: '' }))
+  },
+  async listGoogleFonts() {
+    throw new Error('Google Fonts can be installed in the desktop app.')
+  },
+  async installGoogleFont() {
+    throw new Error('Google Fonts can be installed in the desktop app.')
+  },
+  async installedGoogleFonts() {
+    return []
   },
   async readFontFile() {
     return new Uint8Array()

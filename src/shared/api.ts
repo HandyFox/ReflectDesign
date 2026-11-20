@@ -22,6 +22,22 @@ export interface SystemFont {
   path: string
 }
 
+export interface GoogleFontInfo {
+  family: string
+  category: string
+  popularity: number
+  /** e.g. "400", "700", "400i" */
+  variants: string[]
+}
+
+export interface GoogleFontFile {
+  family: string
+  weight: number
+  italic: boolean
+  path: string
+  bytes: Uint8Array
+}
+
 export interface TemplateInfo {
   id: string
   name: string
@@ -42,9 +58,22 @@ export interface ReflectAPI {
   pickImages(): Promise<PickedImage[]>
   /** Save an exported file (PDF/PNG/JPEG) with a Save dialog. */
   saveExport(bytes: Uint8Array, suggestedName: string, filterName: string, ext: string): Promise<string | null>
+  /**
+   * Turn print-ready HTML (sheets of SVG) into a PDF and save it. The page size
+   * comes from the HTML's @page rule. Returns the saved path, or null if cancelled.
+   */
+  exportPdf(html: string, suggestedName: string): Promise<string | null>
+  /** Open the system print dialog for print-ready HTML. Paper size in points. */
+  printHtml(html: string, paperWidth: number, paperHeight: number): Promise<boolean>
   /** Installed fonts. */
   listFonts(): Promise<SystemFont[]>
   readFontFile(path: string): Promise<Uint8Array>
+  /** Google Fonts catalogue (needs internet the first time). */
+  listGoogleFonts(): Promise<GoogleFontInfo[]>
+  /** Download and install a Google font for this user. */
+  installGoogleFont(family: string, variants: string[]): Promise<GoogleFontFile[]>
+  /** Fonts previously installed from Google. */
+  installedGoogleFonts(): Promise<GoogleFontFile[]>
   /** Templates (built-in + personal). */
   listTemplates(): Promise<TemplateInfo[]>
   readTemplate(path: string): Promise<Uint8Array>

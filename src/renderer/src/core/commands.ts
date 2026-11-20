@@ -8,7 +8,7 @@ import {
 } from './model/ops'
 import { editor, type Editor } from './editor'
 import { readPackage, writePackage, type TemplateMeta } from './io/rdx'
-import { applyCharStyle, applyParaStyle, endOfStory } from './text/edit'
+import { applyCharStyle, applyParaStyle, deleteRange, endOfStory, insertText } from './text/edit'
 import type { TextPos } from './text/layout'
 import { renderPage, type RenderEnv } from './render/canvas'
 import { platform } from '../platform'
@@ -193,6 +193,44 @@ function fitPictureInto(o: SceneObject, pw: number, ph: number): void {
   o.y += (o.height - h) / 2
   o.width = w
   o.height = h
+}
+
+// ---------- cropping ----------
+
+export function toggleCrop(): void {
+  const pic = ed.single
+  if (ed.cropping) { ed.cropping = null; ed.touch(); return }
+  if (!pic || pic.type !== 'picture' || !pic.assetId) return
+  ed.editing = null
+  ed.cropping = pic.id
+  ed.setStatus('Drag the black crop handles to crop. Drag the picture to move it inside the frame. Press Esc when done.')
+}
+
+/** Fill: crop the picture so it fills its frame. Fit: show the whole picture inside the frame. */
+export function cropFitFill(mode: 'fill' | 'fit' | 'clear'): void {
+  const pic = ed.single
+  if (!pic || pic.type !== 'picture' || !pic.assetId) return
+  const info = ed.doc.assets[pic.assetId]
+  if (!info?.pixelWidth || !info.pixelHeight) return
+  ed.change(mode === 'clear' ? 'Clear Crop' : mode === 'fill' ? 'Fill' : 'Fit', (doc) => {
+    const o = getObject(doc, pic.id)
+    if (!o || o.type !== 'picture') return
+    const ia = info.pixelWidth / info.pixelHeight
+    if (mode === 'clear') {
+      // Keep the width, restore the picture's own proportions.
+      const cx = o.x + o.width / 2, cy = o.y + o.height / 2
+      o.height = o.width / ia
+      o.x = cx - o.width / 2
+      o.y = cy - o.height / 2
+      o.crop = { left: 0, top: 0, right: 0, bottom: 0 }
+      return
+    }
+    const fa = o.width / o.height
+    let fx = 1, fy = 1
+    if (mode === 'fill') { if (ia > fa) fx = fa / ia; else fy = ia / fa }
+    else { if (ia > fa) fy = ia / fa; else fx = fa / ia }
+    o.crop = { left: (1 - fx) / 2, right: (1 - fx) / 2, top: (1 - fy) / 2, bottom: (1 - fy) / 2 }
+  })
 }
 
 export function insertPicturePlaceholder(): void {
@@ -538,6 +576,35 @@ export function formatParagraph(label: string, patch: Partial<ParaStyle>): void 
     for (const t of targets) {
       const story = doc.stories[t.storyId]
       if (story) applyParaStyle(story, t.from, t.to, patch)
+    }
+  })
+}
+
+/** Drop Cap: on the paragraph being edited, or the first paragraph of the selected text boxes. */
+export function setDropCap(lines: number | null): void {
+  const targets = textTargets()
+  if (!targets.length) return
+  ed.change(lines ? 'Drop Cap' : 'Remove Drop Cap', (doc) => {
+    for (const t of targets) {
+      const story = doc.stories[t.storyId]
+      if (!story) continue
+      const from = ed.editing ? Math.min(t.from.para, t.to.para) : 0
+      const to = ed.editing ? Math.max(t.from.para, t.to.para) : 0
+      for (let p = from; p <= to; p++) story.paragraphs[p].style.dropCap = lines ? { lines, chars: 1 } : null
+    }
+  })
+}
+
+/** Replace a word (spelling suggestion). */
+export function replaceText(storyId: Id, para: number, start: number, end: number, text: string): void {
+  ed.change('Spelling', (doc) => {
+    const story = doc.stories[storyId]
+    if (!story) return
+    const pos = deleteRange(story, { para, offset: start }, { para, offset: end })
+    const after = insertText(story, pos, text)
+    if (ed.editing && ed.editing.storyId === storyId) {
+      ed.editing.caret = after
+      ed.editing.anchor = after
     }
   })
 }

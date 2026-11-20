@@ -100,3 +100,57 @@ export function resizeFrame(start: Frame, handle: Handle, p: Pt, keepAspect: boo
   const c = toPage(start, centerLocal)
   return { x: c.x - w / 2, y: c.y - h / 2, width: w, height: h, rotation: start.rotation }
 }
+
+export interface Crop { left: number; top: number; right: number; bottom: number }
+
+/** Points per unit of image width/height at the current frame and crop. */
+export function cropScale(f: Frame, c: Crop): { kx: number; ky: number } {
+  return { kx: f.width / Math.max(0.0001, 1 - c.left - c.right), ky: f.height / Math.max(0.0001, 1 - c.top - c.bottom) }
+}
+
+const MIN_VISIBLE = 0.01
+
+/**
+ * Publisher crop handles: dragging an edge hides (or reveals) part of the
+ * picture without changing its size on the page. Returns the new frame and crop.
+ */
+export function cropDrag(start: Frame, c0: Crop, handle: Handle, p: Pt, flipH: boolean, flipV: boolean): { frame: Frame; crop: Crop } {
+  const l = toLocal(start, p)
+  const { kx, ky } = cropScale(start, c0)
+  let left = 0, top = 0, right = start.width, bottom = start.height
+  const c = { ...c0 }
+  // With a flipped picture, the frame's right edge shows the image's left side.
+  const L = flipH ? 'right' : 'left', R = flipH ? 'left' : 'right'
+  const T = flipV ? 'bottom' : 'top', B = flipV ? 'top' : 'bottom'
+  if (handle.includes('e')) {
+    right = Math.max(left + 1, l.x)
+    c[R] = c0[R] - (right - start.width) / kx
+  }
+  if (handle.includes('w')) {
+    left = Math.min(right - 1, l.x)
+    c[L] = c0[L] + left / kx
+  }
+  if (handle.includes('s')) {
+    bottom = Math.max(top + 1, l.y)
+    c[B] = c0[B] - (bottom - start.height) / ky
+  }
+  if (handle.includes('n')) {
+    top = Math.min(bottom - 1, l.y)
+    c[T] = c0[T] + top / ky
+  }
+  // Keep at least a sliver of picture visible.
+  if (1 - c.left - c.right < MIN_VISIBLE || 1 - c.top - c.bottom < MIN_VISIBLE) return { frame: start, crop: c0 }
+  const w = right - left, h = bottom - top
+  const center = toPage(start, { x: (left + right) / 2, y: (top + bottom) / 2 })
+  return { frame: { x: center.x - w / 2, y: center.y - h / 2, width: w, height: h, rotation: start.rotation }, crop: c }
+}
+
+/** Drag the picture inside its crop frame. dx, dy are page-space deltas. */
+export function cropPan(start: Frame, c0: Crop, dx: number, dy: number, flipH: boolean, flipV: boolean): Crop {
+  const a = (-start.rotation * Math.PI) / 180
+  const lx = dx * Math.cos(a) - dy * Math.sin(a)
+  const ly = dx * Math.sin(a) + dy * Math.cos(a)
+  const { kx, ky } = cropScale(start, c0)
+  const ux = (flipH ? -lx : lx) / kx, uy = (flipV ? -ly : ly) / ky
+  return { left: c0.left - ux, right: c0.right + ux, top: c0.top - uy, bottom: c0.bottom + uy }
+}

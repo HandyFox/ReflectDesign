@@ -7,6 +7,7 @@ import type { TemplateInfo } from '@shared/api'
 import { platform } from '../platform'
 import { useEditor } from './useEditor'
 import { useDialogs } from './dialogs/DialogHost'
+import { ExportView, PrintView } from './ExportPrint'
 import { STARTER_TEMPLATES, type StarterTemplate } from '@core/templates/starters'
 
 const starterThumbs = new Map<string, string>()
@@ -71,18 +72,8 @@ export function Backstage() {
             </div>
           </div>
         )}
-        {view === 'export' && (
-          <div>
-            <h1>Export</h1>
-            <p className="muted">PDF for print shops and PNG images (any resolution, transparent background) arrive in milestone M6.</p>
-          </div>
-        )}
-        {view === 'print' && (
-          <div>
-            <h1>Print</h1>
-            <p className="muted">Printing, including tiling large posters across letter paper, arrives in milestone M6.</p>
-          </div>
-        )}
+        {view === 'export' && <ExportView />}
+        {view === 'print' && <PrintView />}
         {view === 'open' && <div><h1>Open</h1><button className="btn primary" onClick={() => cmd.openDocument()}>Browse…</button></div>}
       </main>
     </div>
