@@ -1,0 +1,94 @@
+{
+  "name": "reflectdesign",
+  "productName": "ReflectDesign",
+  "version": "0.1.0",
+  "description": "A friendly page-layout app for bulletin boards and posters that feels like Microsoft Publisher.",
+  "license": "Apache-2.0",
+  "author": "HandyFox",
+  "homepage": "https://github.com/HandyFox/ReflectDesign",
+  "main": "out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "web": "vite --config vite.web.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "dist:linux": "electron-vite build && electron-builder --linux deb AppImage",
+    "dist:win": "electron-vite build && electron-builder --win nsis",
+    "dist:mac": "electron-vite build && electron-builder --mac dmg"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "lucide-react": "^1.76.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  },
+  "build": {
+    "appId": "com.handyfox.reflectdesign",
+    "productName": "ReflectDesign",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/templates",
+        "to": "templates"
+      }
+    ],
+    "fileAssociations": [
+      {
+        "ext": "rdx",
+        "name": "ReflectDesign Publication",
+        "mimeType": "application/x-reflectdesign"
+      },
+      {
+        "ext": "rdt",
+        "name": "ReflectDesign Template",
+        "mimeType": "application/x-reflectdesign-template"
+      }
+    ],
+    "linux": {
+      "category": "Graphics",
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "maintainer": "HandyFox",
+      "synopsis": "Publisher-style layout for posters and bulletin boards",
+      "icon": "build/icon.png",
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "ReflectDesign"
+        }
+      },
+      "syncDesktopName": true
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.graphics-design"
+    }
+  },
+  "desktopName": "reflectdesign.desktop"
+}
