@@ -1,12 +1,22 @@
 import { useEffect, useRef } from 'react'
 import {
-  BringToFront, ClipboardPaste, Copy, Group, Scissors, SendToBack, Trash2, Ungroup, TextCursorInput, Lock, ChevronsUp, ChevronsDown
+  BringToFront, ClipboardPaste, Copy, Group, Scissors, SendToBack, Trash2, Ungroup, TextCursorInput, Lock, ChevronsUp, ChevronsDown, Blend
 } from 'lucide-react'
+import type { SceneObject } from '@core/model/types'
+import { useDialogs } from './dialogs/DialogHost'
 import { editor as ed } from '@core/editor'
 import * as cmd from '@core/commands'
 import { MenuItem, MenuSeparator } from './ribbon/controls'
 import type { SpellTarget } from './workspace/Workspace'
 import { addToDictionary, ignoreAll, suggestions } from '@core/spell'
+
+function formatLabel(objs: SceneObject[]): string {
+  const types = new Set(objs.map((o) => o.type))
+  if (types.size === 1 && types.has('text')) return 'Format Text Box...'
+  if (types.size === 1 && types.has('picture')) return 'Format Picture...'
+  if (types.size === 1 && types.has('shape')) return 'Format AutoShape...'
+  return 'Format Object...'
+}
 
 /** Right-click menu on the page, with Publisher's usual entries. */
 export function ContextMenu({ x, y, onClose, spell }: { x: number; y: number; onClose: () => void; spell: SpellTarget | null }) {
@@ -18,6 +28,7 @@ export function ContextMenu({ x, y, onClose, spell }: { x: number; y: number; on
     window.addEventListener('keydown', key)
     return () => { window.removeEventListener('mousedown', down, true); window.removeEventListener('keydown', key) }
   }, [onClose])
+  const dialogs = useDialogs()
   const run = (fn: () => void) => () => { fn(); onClose() }
   const objs = ed.selectedObjects
   const single = ed.single
@@ -52,6 +63,7 @@ export function ContextMenu({ x, y, onClose, spell }: { x: number; y: number; on
           <MenuItem icon={SendToBack} label="Send to Back" onClick={run(cmd.arrange.sendToBack)} />
           <MenuSeparator />
           <MenuItem icon={Lock} label={single?.locked ? 'Unlock Position' : 'Lock Position'} onClick={run(cmd.lockToggle)} />
+          <MenuItem icon={Blend} label={formatLabel(objs)} onClick={run(() => dialogs.open('format'))} />
           <MenuItem icon={Trash2} label="Delete Object" shortcut="Del" onClick={run(() => cmd.deleteSelection())} />
         </>
       )}

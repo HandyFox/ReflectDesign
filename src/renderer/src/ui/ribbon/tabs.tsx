@@ -4,7 +4,7 @@ import {
   ArrowLeftRight, Palette, LayoutTemplate, ZoomIn, Maximize, MoveHorizontal as PageWidthIcon, Square, SpellCheck,
   BookOpen, Languages, Link2, Unlink, ChevronLeft, ChevronRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd, PaintBucket, PenLine, Sparkles, CaseUpper, Calendar, Omega, BookImage, Frame, RotateCcw,
-  Sun, Contrast, SquareStack, Crop, Replace as ChangePicture, TypeOutline, Layers, Grid3x3
+  Sun, Contrast, SquareStack, Crop, Replace as ChangePicture, TypeOutline, Grid3x3
 } from 'lucide-react'
 import { editor as ed } from '@core/editor'
 import * as cmd from '@core/commands'
@@ -16,7 +16,8 @@ import { toSvgPath } from '@core/geometry/path'
 import { makeStory } from '@core/model/factory'
 import { BigButton, Check, Col, MenuHeader, MenuItem, MenuSeparator, RibbonGroup, SmallButton } from './controls'
 import { ColorButton } from './ColorPicker'
-import { ArrangeGroup, FontGroup, ParagraphGroup, SizeGroup, currentParaStyle, hasText } from './groups'
+import { ArrangeGroup, FontGroup, ParagraphGroup, SizeGroup, currentCharStyle, currentParaStyle, hasText } from './groups'
+import { TransparencyButton } from './Transparency'
 import { useDialogs } from '../dialogs/DialogHost'
 import { typeText } from '@core/textEditing'
 
@@ -344,7 +345,14 @@ export function ViewTab() {
 
 // ---------- CONTEXTUAL: TEXT BOX TOOLS ----------
 
+function textTransparency(): number | null {
+  const cs = currentCharStyle()
+  if (!cs) return null
+  return cs.opacity === undefined ? 0 : 1 - cs.opacity
+}
+
 export function TextBoxFormatTab() {
+  const dialogs = useDialogs()
   const box = ed.activeTextBox
   const set = cmd.setTextBoxProps
   const fit = box?.autofit
@@ -391,6 +399,21 @@ export function TextBoxFormatTab() {
           <SmallButton icon={Unlink} label="Break" disabled={!box?.nextId} onClick={() => box && cmd.breakLink(box.id)} />
           <SmallButton icon={ChevronLeft} label="Previous" disabled={!box || !hasPrev(box)} onClick={() => box && goLinked(box, -1)} />
           <SmallButton icon={ChevronRight} label="Next" disabled={!box?.nextId} onClick={() => box && goLinked(box, 1)} />
+        </Col>
+      </RibbonGroup>
+      <RibbonGroup label="Text Box Styles" launcher={() => dialogs.open('format')}>
+        <Col>
+          <ColorButton icon={<PaintBucket size={15} />} label="Shape Fill" title="Text box fill" color="#FFFFFF"
+            onPick={(c) => cmd.setObjectProps('Shape Fill', (o) => { if (o.type === 'text') o.fill = { type: 'solid', color: c, opacity: o.fill.type === 'solid' ? o.fill.opacity : 1 } })}
+            onNone={() => cmd.setObjectProps('Shape Fill', (o) => { if (o.type === 'text') o.fill = { type: 'none' } })} noneLabel="No Fill" />
+          <ColorButton icon={<PenLine size={15} />} label="Shape Outline" title="Text box border" color="#000000"
+            onPick={(c) => cmd.setObjectProps('Shape Outline', (o) => { if (o.type === 'text') o.stroke = { ...o.stroke, color: c, width: o.stroke.width || 0.75 } })}
+            onNone={() => cmd.setObjectProps('Shape Outline', (o) => { if (o.type === 'text') o.stroke = { ...o.stroke, width: 0 } })} noneLabel="No Outline" />
+          <TransparencyButton disabled={!box} rows={[
+            { label: 'Fill transparency', value: cmd.fillTransparency(), onChange: cmd.setFillTransparency, hint: 'Pick a Shape Fill color first. "No Fill" is already fully see-through.' },
+            { label: 'Text transparency', value: textTransparency(), onChange: cmd.setTextTransparency },
+            { label: 'Outline transparency', value: cmd.lineTransparency(), onChange: cmd.setLineTransparency, hint: 'Pick a Shape Outline first.' }
+          ]} />
         </Col>
       </RibbonGroup>
       <RibbonGroup label="Effects">
@@ -495,6 +518,7 @@ function TextEffectButtons({ enabled }: { enabled: boolean }) {
 // ---------- CONTEXTUAL: PICTURE TOOLS ----------
 
 export function PictureFormatTab() {
+  const dialogs = useDialogs()
   const pic = ed.single && ed.single.type === 'picture' ? ed.single : null
   const set = cmd.setObjectProps
   return (
@@ -528,20 +552,17 @@ export function PictureFormatTab() {
             onClick={() => set('Reset Picture', (o) => { if (o.type === 'picture') { o.brightness = 0; o.contrast = 0; o.grayscale = false; o.recolor = null; o.opacity = 1; o.crop = { left: 0, top: 0, right: 0, bottom: 0 } } })} />
         </Col>
       </RibbonGroup>
-      <RibbonGroup label="Picture Styles">
+      <RibbonGroup label="Picture Styles" launcher={() => dialogs.open('format')}>
         <Col>
           <ColorButton icon={<Square size={15} />} label="Picture Border" title="Picture Border" color="#000000"
             onPick={(c) => set('Picture Border', (o) => { if (o.type === 'picture') o.stroke = { ...o.stroke, color: c, width: o.stroke.width || 1 } })}
             onNone={() => set('Picture Border', (o) => { if (o.type === 'picture') o.stroke = { ...o.stroke, width: 0 } })} noneLabel="No Outline" />
           <ShadowButton label="Picture Effects" />
-          <SmallButton icon={Layers} label="Transparency" disabled={!pic}
-            menu={(close) => (
-              <>
-                {[0, 0.25, 0.5, 0.75].map((t) => (
-                  <MenuItem key={t} label={`${Math.round(t * 100)}%`} checked={pic ? Math.abs(1 - pic.opacity - t) < 0.01 : false} onClick={() => { set('Transparency', (o) => { if (o.type === 'picture') o.opacity = 1 - t }); close() }} />
-                ))}
-              </>
-            )} />
+          <TransparencyButton disabled={!pic} rows={[
+            { label: 'Picture transparency', value: cmd.pictureTransparency(), onChange: cmd.setPictureTransparency },
+            { label: 'Background fill transparency', value: cmd.fillTransparency(), onChange: cmd.setFillTransparency, hint: 'Add a Shape Fill behind the picture to use this.' },
+            { label: 'Border transparency', value: cmd.lineTransparency(), onChange: cmd.setLineTransparency, hint: 'Add a Picture Border to use this.' }
+          ]} />
         </Col>
       </RibbonGroup>
       <ArrangeGroup wrap />
@@ -580,6 +601,7 @@ function ShadowButton({ label }: { label: string }) {
 // ---------- CONTEXTUAL: DRAWING TOOLS ----------
 
 export function DrawingFormatTab() {
+  const dialogs = useDialogs()
   const set = cmd.setObjectProps
   const objs = ed.selectedObjects
   const fillable = (o: SceneObject) => o.type === 'shape' || o.type === 'text' || o.type === 'picture'
@@ -589,7 +611,7 @@ export function DrawingFormatTab() {
         <BigButton icon={Shapes} label="Shapes" color="#c55a11" menu={(close) => <ShapesGallery close={close} />} />
         <BigButton icon={TextCursorInput} label="Draw Text Box" color="#1f5fa8" onClick={drawTextBoxTool} />
       </RibbonGroup>
-      <RibbonGroup label="Shape Styles">
+      <RibbonGroup label="Shape Styles" launcher={() => dialogs.open('format')}>
         <Col>
           <ColorButton icon={<PaintBucket size={15} />} label="Shape Fill" title="Shape Fill" color="#5B9BD5"
             onPick={(c) => set('Shape Fill', (o) => { if (fillable(o)) (o as any).fill = { type: 'solid', color: c, opacity: 1 } })}
@@ -608,6 +630,10 @@ export function DrawingFormatTab() {
         </Col>
         <Col>
           <ShadowButton label="Shape Effects" />
+          <TransparencyButton disabled={!objs.length} rows={[
+            { label: 'Fill transparency', value: cmd.fillTransparency(), onChange: cmd.setFillTransparency, hint: 'Pick a Shape Fill color first.' },
+            { label: 'Outline transparency', value: cmd.lineTransparency(), onChange: cmd.setLineTransparency, hint: 'Pick a Shape Outline first.' }
+          ]} />
           <SmallButton iconNode={<span className="weight">┅</span>} label="Dashes" disabled={!objs.length}
             menu={(close) => (
               <>

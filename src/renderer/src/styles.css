@@ -278,3 +278,34 @@ legend { color: #444; padding: 0 4px; }
 .gf-detail { margin-top: 6px; color: #555; }
 .gf-detail code { display: block; white-space: pre-wrap; word-break: break-all; font-size: 11px; background: #f6f6f6; padding: 6px; margin-top: 4px; user-select: text; }
 .error .btn { margin-left: 8px; height: 22px; min-width: 0; }
+
+/* ---------- transparency ---------- */
+.tslider-panel { padding: 6px 4px; width: 330px; }
+.tslider { padding: 6px 10px; }
+.tslider + .tslider { border-top: 1px solid #eee; }
+.tslider.disabled { opacity: 0.55; }
+.tslider-label { font-weight: 600; color: #333; margin-bottom: 4px; }
+.tslider-row { display: flex; align-items: center; gap: 6px; }
+.tslider-row input[type=range] { flex: 1; accent-color: var(--accent); }
+.tslider-end { font-size: 10px; color: var(--muted); }
+.tslider-num { width: 42px; height: 22px; border: 1px solid #adadad; padding: 0 4px; text-align: right; }
+.tslider-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.tslider-presets { display: flex; gap: 4px; margin-top: 6px; }
+.tpreset { flex: 1; display: flex; align-items: center; gap: 3px; justify-content: center; border: 1px solid #ddd; background: #fff; height: 22px; font-size: 11px; cursor: pointer; padding: 0 2px; }
+.tpreset:hover, .tpreset.on { border-color: var(--accent); background: #eef7f5; }
+.tpreset-swatch { width: 10px; height: 10px; background: #077568; display: inline-block; }
+.format-dialog { width: 560px; }
+.dialog-tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid #ccc; }
+.dtab { border: 1px solid transparent; border-bottom: 0; background: transparent; padding: 5px 12px; cursor: pointer; margin-bottom: -1px; }
+.dtab.on { border-color: #ccc; background: #fff; border-bottom: 1px solid #fff; }
+.format-body { min-height: 330px; padding-top: 12px; }
+.frow { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; flex-wrap: wrap; }
+.frow select { height: 24px; border: 1px solid #adadad; }
+.flabel { color: #333; }
+.flabel.wide { width: 80px; }
+.fval { width: 40px; text-align: right; }
+.frow input[type=range] { flex: 1; accent-color: var(--accent); }
+.color-pick { display: flex; align-items: center; gap: 6px; height: 24px; border: 1px solid #adadad; background: #fff; padding: 0 6px; min-width: 130px; cursor: pointer; }
+.color-pick .caret { margin-left: auto; font-size: 10px; }
+.wrap-modes { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+.wrap-modes label { display: flex; gap: 4px; align-items: center; }

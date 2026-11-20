@@ -4,8 +4,9 @@ import * as cmd from '@core/commands'
 import { PAGE_PRESETS, formatLength, parseLength } from '@core/model/units'
 import { SpellingDialog } from './SpellingDialog'
 import { GoogleFontsDialog } from './GoogleFontsDialog'
+import { FormatDialog } from './FormatDialog'
 
-type DialogKind = 'pageSetup' | 'renamePage' | 'saveTemplate' | 'spelling' | 'googleFonts'
+type DialogKind = 'pageSetup' | 'renamePage' | 'saveTemplate' | 'spelling' | 'googleFonts' | 'format'
 
 const Ctx = createContext<{ open: (k: DialogKind) => void }>({ open: () => {} })
 export const useDialogs = () => useContext(Ctx)
@@ -21,6 +22,7 @@ export function DialogHost({ children }: { children: ReactNode }) {
       {open === 'saveTemplate' && <SaveTemplateDialog onClose={close} />}
       {open === 'spelling' && <SpellingDialog onClose={close} />}
       {open === 'googleFonts' && <GoogleFontsDialog onClose={close} />}
+      {open === 'format' && <FormatDialog onClose={close} />}
     </Ctx.Provider>
   )
 }

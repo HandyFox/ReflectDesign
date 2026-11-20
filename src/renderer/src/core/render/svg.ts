@@ -157,10 +157,13 @@ function lineSvg(defs: Defs, line: LaidLine, f: number): string {
     const y = line.baseline + shift + (run.dy ?? 0)
     const text = displayText(run.text, s)
     if (s.highlight) out += `<rect x="${n(x)}" y="${n(line.top)}" width="${n(run.width)}" height="${n(line.height)}" fill="${s.highlight}"/>`
+    // Text transparency: one group so fill, outline and underline fade together.
+    const groupStart = out.length
+    const runOpacity = Math.max(0, Math.min(1, s.opacity))
     const sc = s.scale / 100
     const tf = `translate(${n(x)} ${n(y)})${sc !== 1 ? ` scale(${n(sc)} 1)` : ''}`
     const ws = line.spaceExtra && !run.marker ? ` word-spacing="${n(line.spaceExtra / sc)}"` : ''
-    let fill = `fill="${s.color}" fill-opacity="${s.opacity}"`
+    let fill = `fill="${s.color}"`
     if (s.textFill && s.textFill.type !== 'none') {
       const p = paintAttr(defs, s.textFill, 0, line.top - y, run.width / sc, line.height)
       fill = `fill="${p.paint}" fill-opacity="${p.opacity}"`
@@ -186,6 +189,7 @@ function lineSvg(defs: Defs, line: LaidLine, f: number): string {
       if (s.underline === 'double') out += `<rect x="${n(x)}" y="${n(uy + t * 2)}" width="${n(ulW)}" height="${n(t)}" fill="${s.color}"/>`
     }
     if (s.strike && ulW > 0) out += `<rect x="${n(x)}" y="${n(y - size * 0.3)}" width="${n(ulW)}" height="${n(thick)}" fill="${s.color}"/>`
+    if (runOpacity < 1) out = `${out.slice(0, groupStart)}<g opacity="${n(runOpacity)}">${out.slice(groupStart)}</g>`
   }
   return out
 }

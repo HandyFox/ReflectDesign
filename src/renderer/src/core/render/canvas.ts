@@ -227,13 +227,15 @@ function drawLine(ctx: Ctx, env: RenderEnv, line: LaidLine, layout: StoryLayout)
     const y = line.baseline + shift + (run.dy ?? 0)
     const text = displayText(run.text, s)
     ctx.save()
+    // Text transparency applies to the whole run: fill, outline, glow and underline together.
+    ctx.globalAlpha = Math.max(0, Math.min(1, s.opacity))
     if (s.highlight && run.dy === undefined) {
       ctx.fillStyle = rgba(s.highlight, 1)
       ctx.fillRect(x, line.top, run.width, line.height)
     }
     applyFont(ctx, s, f)
     ctx.textBaseline = 'alphabetic'
-    const fillPaint = s.textFill ? paint(ctx, s.textFill, run.width, line.height) : rgba(s.color, s.opacity)
+    const fillPaint = s.textFill ? paint(ctx, s.textFill, run.width, line.height) : rgba(s.color, 1)
     const drawText = (mode: 'fill' | 'stroke') => {
       if (line.spaceExtra) {
         // Justified: draw word by word so spaces can stretch.
@@ -282,7 +284,7 @@ function drawLine(ctx: Ctx, env: RenderEnv, line: LaidLine, layout: StoryLayout)
     }
     // Underline / strikethrough
     const thick = Math.max(0.5, size / 16)
-    ctx.fillStyle = rgba(s.color, s.opacity)
+    ctx.fillStyle = rgba(s.color, 1)
     const ulWidth = run.width - (line.last ? 0 : trailingSpaceWidth(ctx, run.text, s.scale, line.spaceExtra))
     if (s.underline !== 'none' && ulWidth > 0) {
       const uy = y + size * 0.12
@@ -295,7 +297,7 @@ function drawLine(ctx: Ctx, env: RenderEnv, line: LaidLine, layout: StoryLayout)
         for (let ux = 0; ux < ulWidth; ux += seg * 2) ctx.fillRect(x + ux, uy, Math.min(seg, ulWidth - ux), t)
       } else if (s.underline === 'wave') {
         ctx.save()
-        ctx.strokeStyle = rgba(s.color, s.opacity)
+        ctx.strokeStyle = rgba(s.color, 1)
         ctx.lineWidth = t
         ctx.beginPath()
         for (let ux = 0; ux <= ulWidth; ux += t) {

@@ -546,7 +546,7 @@ function textTargets(): Array<{ storyId: Id; from: TextPos; to: TextPos }> {
   return out
 }
 
-export function formatText(label: string, patch: Partial<CharStyle>): void {
+export function formatText(label: string, patch: Partial<CharStyle>, coalesce?: string): void {
   const targets = textTargets()
   if (!targets.length) return
   const e = ed.editing
@@ -566,7 +566,7 @@ export function formatText(label: string, patch: Partial<CharStyle>): void {
       const story = doc.stories[t.storyId]
       if (story) applyCharStyle(story, t.from, t.to, patch)
     }
-  })
+  }, coalesce)
 }
 
 export function formatParagraph(label: string, patch: Partial<ParaStyle>): void {
@@ -618,6 +618,79 @@ export function setTextBoxProps(label: string, patch: Partial<TextBoxObject>): v
       if (o && o.type === 'text') Object.assign(o, patch)
     }
   })
+}
+
+// ---------- transparency ----------
+
+type Filled = Extract<SceneObject, { fill: unknown }>
+
+function hasFill(o: SceneObject): o is Filled {
+  return o.type === 'text' || o.type === 'picture' || o.type === 'shape'
+}
+
+function leaves(objs: SceneObject[]): SceneObject[] {
+  return objs.flatMap((o) => (o.type === 'group' ? leaves(o.children) : [o]))
+}
+
+/** Fill transparency of the selection (0 = solid, 1 = clear), null if none have a fill. */
+export function fillTransparency(): number | null {
+  for (const o of leaves(ed.selectedObjects)) {
+    if (!hasFill(o)) continue
+    if (o.fill.type === 'solid') return 1 - o.fill.opacity
+    if (o.fill.type === 'linear' || o.fill.type === 'radial') return 1 - (o.fill.stops[0]?.opacity ?? 1)
+  }
+  return null
+}
+
+/** Publisher's Fill Transparency slider. Changes made while dragging become one undo step. */
+export function setFillTransparency(t: number): void {
+  const ids = ed.selection.join(',')
+  ed.change('Fill Transparency', (doc) => {
+    for (const s of ed.selectedObjects) {
+      const o = getObject(doc, s.id)
+      if (!o) continue
+      for (const leaf of leaves([o])) {
+        if (!hasFill(leaf)) continue
+        const f = leaf.fill
+        if (f.type === 'solid') f.opacity = 1 - t
+        else if (f.type === 'linear' || f.type === 'radial') f.stops.forEach((st) => { st.opacity = 1 - t })
+      }
+    }
+  }, `fillT:${ids}`)
+}
+
+export function lineTransparency(): number | null {
+  for (const o of leaves(ed.selectedObjects)) if (hasFill(o) && o.stroke.width > 0) return 1 - o.stroke.opacity
+  return null
+}
+
+export function setLineTransparency(t: number): void {
+  const ids = ed.selection.join(',')
+  ed.change('Line Transparency', (doc) => {
+    for (const s of ed.selectedObjects) {
+      const o = getObject(doc, s.id)
+      if (o) for (const leaf of leaves([o])) if (hasFill(leaf)) leaf.stroke.opacity = 1 - t
+    }
+  }, `lineT:${ids}`)
+}
+
+export function pictureTransparency(): number | null {
+  const p = leaves(ed.selectedObjects).find((o) => o.type === 'picture')
+  return p && p.type === 'picture' ? 1 - p.opacity : null
+}
+
+export function setPictureTransparency(t: number): void {
+  const ids = ed.selection.join(',')
+  ed.change('Picture Transparency', (doc) => {
+    for (const s of ed.selectedObjects) {
+      const o = getObject(doc, s.id)
+      if (o) for (const leaf of leaves([o])) if (leaf.type === 'picture') leaf.opacity = 1 - t
+    }
+  }, `picT:${ids}`)
+}
+
+export function setTextTransparency(t: number): void {
+  formatText('Text Transparency', { opacity: 1 - t }, `textT:${ed.selection.join(',')}`)
 }
 
 // ---------- linking text boxes ----------
