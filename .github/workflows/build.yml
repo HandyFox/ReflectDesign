@@ -1,0 +1,62 @@
+name: Build
+
+# Every push to main builds the Linux installers and publishes them to the
+# "latest" release, so they can be downloaded without building locally.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build installers
+        run: npx electron-vite build && npx electron-builder --linux deb AppImage --publish never
+
+      - name: Keep the installers with this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: reflectdesign-linux
+          path: |
+            release/*.deb
+            release/*.AppImage
+
+      - name: Publish to the "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest release/*.deb release/*.AppImage \
+            --title "Latest build" \
+            --target "${GITHUB_SHA}" \
+            --prerelease \
+            --notes "Automatic build of commit ${GITHUB_SHA::7}.
+
+          Install on Ubuntu:
+          \`\`\`
+          wget -O /tmp/reflectdesign.deb https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/ReflectDesign-linux-amd64.deb && sudo apt install -y /tmp/reflectdesign.deb
+          \`\`\`"

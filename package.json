@@ -88,6 +88,12 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.graphics-design"
+    },
+    "deb": {
+      "artifactName": "ReflectDesign-linux-amd64.deb"
+    },
+    "appImage": {
+      "artifactName": "ReflectDesign-linux-x86_64.AppImage"
     }
   },
   "desktopName": "reflectdesign.desktop"
