@@ -265,10 +265,19 @@ function lineHeightFor(ascent: number, descent: number, ps: ParaStyle): number {
   return ps.lineSpacing.mode === 'exact' ? ps.lineSpacing.value : natural * ps.lineSpacing.value
 }
 
-function flow(story: Story, chain: TextBoxObject[], m: Measurer, f: number, unlimitedFirst = false, wrap?: WrapFn): FlowResult {
+/**
+ * Flow a story through its boxes. `startOffsets` pushes the text of a box down
+ * by that many points (used for vertical alignment when other objects wrap
+ * the text, so the wrap is worked out where the lines really end up).
+ */
+function flow(story: Story, chain: TextBoxObject[], m: Measurer, f: number, unlimitedFirst = false, wrap?: WrapFn, startOffsets?: Map<string, number>): FlowResult {
   const areas: Area[] = []
   for (const [i, b] of chain.entries()) {
-    for (const a of contentAreas(b)) areas.push(unlimitedFirst && i === 0 ? { ...a, height: 1e7 } : a)
+    const off = startOffsets?.get(b.id) ?? 0
+    for (const a of contentAreas(b)) {
+      const shifted = off ? { ...a, top: a.top + off, height: Math.max(1, a.height - off) } : a
+      areas.push(unlimitedFirst && i === 0 ? { ...shifted, height: 1e7 } : shifted)
+    }
   }
   const boxes: BoxLayout[] = chain.map((b) => ({ boxId: b.id, lines: [] }))
   const boxIndexOf = new Map(chain.map((b, i) => [b.id, i]))
@@ -422,17 +431,23 @@ function flow(story: Story, chain: TextBoxObject[], m: Measurer, f: number, unli
   for (const [bi, bl] of boxes.entries()) {
     const box = chain[bi]
     for (const line of bl.lines) alignLine(line, story.paragraphs[line.para].style.align)
-    if (box.vAlign !== 'top' && bl.lines.length && !wrap) {
-      const areasOfBox = contentAreas(box)
-      const used = bl.lines.at(-1)!.top + bl.lines.at(-1)!.height - bl.lines[0].top
-      const free = areasOfBox[0].height - used
-      if (free > 0 && box.columns <= 1) {
-        const dy = box.vAlign === 'middle' ? free / 2 : free
-        for (const line of bl.lines) { line.top += dy; line.baseline += dy }
-      }
+    // With wrapping objects, layoutStory re-flows with a start offset instead.
+    if (!wrap) {
+      const dy = vAlignShift(box, bl)
+      if (dy > 0) for (const line of bl.lines) { line.top += dy; line.baseline += dy }
     }
   }
   return { boxes, overflow, brokeWord, neededHeight: neededHeight + chain[0].margins.bottom }
+}
+
+/** How far Middle/Bottom vertical alignment moves a box's lines down (0 for Top). */
+function vAlignShift(box: TextBoxObject, bl: BoxLayout): number {
+  if (box.vAlign === 'top' || !bl.lines.length || box.columns > 1) return 0
+  const first = bl.lines[0], last = bl.lines.at(-1)!
+  const used = last.top + last.height - first.top
+  const free = contentAreas(box)[0].height - (first.top - box.margins.top) - used
+  if (free <= 0) return 0
+  return box.vAlign === 'middle' ? free / 2 : free
 }
 
 function splitWord(pc: Piece, maxW: number, m: Measurer, f: number): Piece[] {
@@ -498,7 +513,21 @@ export function layoutStory(story: Story, chain: TextBoxObject[], m: Measurer, w
       f = lo
     }
   }
-  const r = flow(story, chain, m, f, mode === 'growBox', wrap)
+  let r = flow(story, chain, m, f, mode === 'growBox', wrap)
+  if (wrap && mode !== 'growBox') {
+    // Middle/Bottom alignment with wrapping objects: move the text down and
+    // flow again, so the wrap is measured where the lines actually sit.
+    const offsets = new Map<string, number>()
+    for (const [bi, box] of chain.entries()) {
+      const dy = vAlignShift(box, r.boxes[bi])
+      if (dy > 0.01) offsets.set(box.id, dy)
+    }
+    if (offsets.size) {
+      const second = flow(story, chain, m, f, false, wrap, offsets)
+      // Keep the shifted layout only if it still fits as well as the first one did.
+      if (!second.overflow || r.overflow) r = second
+    }
+  }
   return { storyId: story.id, boxes: r.boxes, overflow: r.overflow, sizeFactor: f, neededHeight: r.neededHeight }
 }
 

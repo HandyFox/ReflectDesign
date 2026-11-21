@@ -4,7 +4,8 @@ A friendly page-layout app for bulletin boards, posters and signs — built to
 feel like **Microsoft Publisher 2016/2019** on Linux (Ubuntu), Windows and macOS.
 
 > Status: in development. See [docs/PLAN.md](docs/PLAN.md) for the full
-> feature plan and milestones.
+> feature plan and milestones, and [CHANGELOG.md](CHANGELOG.md) for what has
+> been fixed and added recently.
 
 ## Highlights (planned)
 - Publisher-style ribbon, page navigation pane and gray scratch area
@@ -15,7 +16,8 @@ feel like **Microsoft Publisher 2016/2019** on Linux (Ubuntu), Windows and macOS
 - Any custom page size, from labels to banners
 - PDF export for print shops, PNG export (any DPI, transparent background)
 - Your system fonts plus a built-in Google Fonts browser
-- Starter templates and Save As Template
+- Starter templates, Save As Template and New Blank Template
+- Recent files on the File › Open screen
 
 ## Install on Ubuntu
 

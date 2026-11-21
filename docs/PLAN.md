@@ -123,6 +123,8 @@ Primary platform: **Ubuntu Linux**. Also runs on Windows and macOS.
   (your saved templates), with thumbnails — just like Publisher's backstage.
 - **Save As Template** (File > Save As > ReflectDesign Template) with name,
   category and description.
+- **New Blank Template** (File > New > Personal): start a blank template of any
+  page size; Save keeps updating it. ✔ Done 2026-11-21.
 - Starter templates (first release): bulletin board title banner, classroom
   poster, event flyer, and a cut-out letter sheet.
 - Building Blocks: save any selected objects as a reusable block.
@@ -139,7 +141,7 @@ Primary platform: **Ubuntu Linux**. Also runs on Windows and macOS.
 - Native format **`.rdx`** — a zip containing `document.json`, images and
   embedded fonts. Templates use **`.rdt`** (same structure).
 - Autosave every 2 minutes and on crash recovery at next launch.
-- Recent files list.
+- Recent files list. ✔ Done 2026-11-21 (File › Open › Recent; see CHANGELOG.md).
 - **Import `.pub`** (later milestone) using libmspub via LibreOffice → SVG,
   then mapped to ReflectDesign objects. Fancy WordArt may need touch-up.
 

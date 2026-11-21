@@ -19,6 +19,12 @@ export class AssetStore {
     for (const id of this.data.keys()) this.decode(id)
   }
 
+  /** Add picture data that already has an id (e.g. pasted from another publication). */
+  put(data: AssetData): void {
+    this.data.set(data.info.id, data)
+    this.decode(data.info.id)
+  }
+
   get(id: Id): AssetData | undefined {
     return this.data.get(id)
   }
@@ -62,6 +68,9 @@ export class AssetStore {
         this.onLoaded?.()
       } catch {
         /* unsupported or damaged image: leave as placeholder */
+      } finally {
+        // The decoded image keeps its pixels; the blob URL isn't needed any more.
+        URL.revokeObjectURL(url)
       }
     })()
     this.pending.set(id, p)

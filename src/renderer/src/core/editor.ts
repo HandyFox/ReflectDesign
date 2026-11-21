@@ -10,6 +10,7 @@ import { TextEngine } from './text/engine'
 import { CanvasMeasurer } from './text/canvasMeasurer'
 import type { TextPos } from './text/layout'
 import type { Unit } from './model/units'
+import type { TemplateMeta } from './io/rdx'
 
 export type Tool =
   | { kind: 'select' }
@@ -79,6 +80,8 @@ export class Editor {
 
   filePath: string | null = null
   fileName = 'Publication1'
+  /** Set while editing a personal template (File › New › New Blank Template): Save updates the template. */
+  templateMeta: TemplateMeta | null = null
   dirty = false
   /** Bumped on every change; used by React and caches. */
   version = 0
@@ -209,6 +212,7 @@ export class Editor {
   }
 
   redo(): void {
+    if (this.live) this.endLive()
     const s = this.history.redo(this.snapshot(''))
     if (!s) return
     this.restore(s)
@@ -269,6 +273,11 @@ export class Editor {
     this.assets.replaceAll(assets)
     this.selection = []
     this.editing = null
+    this.cropping = null
+    this.live = null
+    this.lastCoalesce = null
+    this.templateMeta = null
+    this.status = ''
     this.pageIndex = 0
     this.history.clear()
     this.filePath = path
@@ -291,7 +300,8 @@ export class Editor {
 
   updateTitle(): void {
     // Electron mirrors document.title into the window title bar.
-    document.title = `${this.dirty ? '*' : ''}${this.fileName} - ReflectDesign`
+    const kind = this.templateMeta ? ' (Template)' : ''
+    document.title = `${this.dirty ? '*' : ''}${this.fileName}${kind} - ReflectDesign`
   }
 }
 

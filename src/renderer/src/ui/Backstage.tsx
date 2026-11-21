@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, FileDown, FilePlus2, FolderOpen, Info, Printer, Save, SaveAll, X } from 'lucide-react'
+import { ArrowLeft, FileDown, FilePlus2, FileText, FolderOpen, Info, LayoutTemplate, Printer, Save, SaveAll, X } from 'lucide-react'
 import { editor as ed } from '@core/editor'
 import * as cmd from '@core/commands'
 import { PAGE_PRESETS, formatLength } from '@core/model/units'
-import type { TemplateInfo } from '@shared/api'
-import { platform } from '../platform'
+import type { RecentFile, TemplateInfo } from '@shared/api'
+import { isDesktop, platform } from '../platform'
 import { useEditor } from './useEditor'
 import { useDialogs } from './dialogs/DialogHost'
 import { ExportView, PrintView } from './ExportPrint'
@@ -47,7 +47,7 @@ export function Backstage() {
         <button className="bs-back" onClick={close} aria-label="Back"><ArrowLeft size={22} /></button>
         <NavItem icon={Info} label="Info" active={view === 'info'} onClick={() => go('info')} />
         <NavItem icon={FilePlus2} label="New" active={view === 'new'} onClick={() => go('new')} />
-        <NavItem icon={FolderOpen} label="Open" active={view === 'open'} onClick={() => { cmd.openDocument() }} />
+        <NavItem icon={FolderOpen} label="Open" active={view === 'open'} onClick={() => go('open')} />
         <NavItem icon={Save} label="Save" onClick={() => { cmd.save().then((ok) => ok && close()) }} />
         <NavItem icon={SaveAll} label="Save As" active={view === 'save'} onClick={() => go('save')} />
         <NavItem icon={FileDown} label="Export" active={view === 'export'} onClick={() => go('export')} />
@@ -74,10 +74,62 @@ export function Backstage() {
         )}
         {view === 'export' && <ExportView />}
         {view === 'print' && <PrintView />}
-        {view === 'open' && <div><h1>Open</h1><button className="btn primary" onClick={() => cmd.openDocument()}>Browse…</button></div>}
+        {view === 'open' && <OpenView />}
       </main>
     </div>
   )
+}
+
+/** File › Open: Recent publications plus Browse, like Publisher's Open screen. */
+function OpenView() {
+  const [recent, setRecent] = useState<RecentFile[] | null>(null)
+  const refresh = () => { platform.listRecent().then(setRecent).catch(() => setRecent([])) }
+  useEffect(refresh, [])
+  return (
+    <div>
+      <h1>Open</h1>
+      <button className="btn primary" onClick={() => cmd.openDocument()}>
+        <FolderOpen size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Browse…
+      </button>
+      <h2>Recent</h2>
+      {!isDesktop && <p className="muted">The recent list is available in the desktop app.</p>}
+      {isDesktop && recent && recent.length === 0 && (
+        <p className="muted">Publications you open or save will appear here so you can get back to them quickly.</p>
+      )}
+      {recent && recent.length > 0 && (
+        <>
+          <ul className="recent-list">
+            {recent.map((r) => (
+              <li key={r.path}>
+                <button className="recent-item" title={r.path} onClick={() => cmd.openRecent(r.path)}>
+                  <div className="recent-thumb">{r.thumbnail ? <img src={r.thumbnail} alt="" /> : <FileText size={26} />}</div>
+                  <div className="recent-text">
+                    <b>{r.name.replace(/\.(rdx|rdt)$/i, '')}{/\.rdt$/i.test(r.name) ? ' (template)' : ''}</b>
+                    <span className="muted">{r.folder}</span>
+                  </div>
+                  <span className="recent-date muted">{friendlyDate(r.opened)}</span>
+                </button>
+                <button className="recent-remove" title="Remove from list" aria-label={`Remove ${r.name} from the recent list`}
+                  onClick={() => { platform.removeRecent(r.path).then(refresh) }}><X size={14} /></button>
+              </li>
+            ))}
+          </ul>
+          <button className="btn" onClick={() => { platform.removeRecent(null).then(refresh) }}>Clear Recent List</button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function friendlyDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const today = new Date()
+  const days = Math.floor((new Date(today.toDateString()).getTime() - new Date(d.toDateString()).getTime()) / 86400000)
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  if (days === 0) return `Today ${time}`
+  if (days === 1) return `Yesterday ${time}`
+  return d.toLocaleDateString()
 }
 
 function NavItem({ icon: Icon, label, active, onClick }: { icon: typeof Info; label: string; active?: boolean; onClick: () => void }) {
@@ -119,6 +171,7 @@ const BLANKS: Array<{ name: string; w: number; h: number }> = [
 ]
 
 function NewView() {
+  const dialogs = useDialogs()
   const [templates, setTemplates] = useState<TemplateInfo[]>([])
   const [loaded, setLoaded] = useState(false)
   const [more, setMore] = useState(false)
@@ -150,7 +203,13 @@ function NewView() {
         {featured.map((t) => <TemplateCard key={t.id} t={t} />)}
       </div>
       <h2>Personal</h2>
-      {loaded && personal.length === 0 && <p className="muted">Templates you save with <b>File › Save As › ReflectDesign Template</b> appear here.</p>}
+      <div className="tpl-grid">
+        <button className="tpl" title="Start a blank design that is saved as one of your templates" onClick={() => dialogs.open('newTemplate')}>
+          <div className="tpl-thumb more"><LayoutTemplate size={34} /></div>
+          <div className="tpl-name">New Blank Template</div>
+        </button>
+      </div>
+      {loaded && personal.length === 0 && <p className="muted">Templates you make here, or save with <b>File › Save As › ReflectDesign Template</b>, appear here.</p>}
       {[...byCategory.entries()].map(([cat, list]) => (
         <div key={cat}>
           <h3>{cat}</h3>

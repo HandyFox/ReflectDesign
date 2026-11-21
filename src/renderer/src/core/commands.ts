@@ -1,6 +1,6 @@
 // Commands invoked from the ribbon, keyboard shortcuts and menus.
 
-import type { CharStyle, Id, ParaStyle, RDocument, SceneObject, ShapeKind, TextBoxObject } from './model/types'
+import type { AssetData, CharStyle, Id, ParaStyle, RDocument, SceneObject, ShapeKind, TextBoxObject } from './model/types'
 import { boundsOfObjects, makeDocument, makePicture, makeShape, makeStory, makeTextBox, newId } from './model/factory'
 import {
   bringForward, bringToFront, cloneObjects, deletePage, duplicatePage, frameOf, getObject, group, insertPage,
@@ -8,7 +8,7 @@ import {
 } from './model/ops'
 import { editor, type Editor } from './editor'
 import { readPackage, writePackage, type TemplateMeta } from './io/rdx'
-import { applyCharStyle, applyParaStyle, deleteRange, endOfStory, insertText } from './text/edit'
+import { applyCharStyle, applyParaStyle, commonCharStyle, deleteRange, endOfStory, insertText, textOfRange } from './text/edit'
 import type { TextPos } from './text/layout'
 import { renderPage, type RenderEnv } from './render/canvas'
 import { platform } from '../platform'
@@ -18,9 +18,23 @@ const ed: Editor = editor
 
 // ---------- files ----------
 
-export function newDocument(width = 612, height = 792): void {
+/**
+ * Before the open publication is replaced (New, Open, Close…): if it has
+ * unsaved changes, ask Save / Don't Save / Cancel. Returns false to stop.
+ */
+export async function confirmReplace(): Promise<boolean> {
+  if (!ed.dirty) return true
+  const choice = await platform.askUnsaved(ed.fileName)
+  if (choice === 'cancel') return false
+  if (choice === 'save') return save()
+  return true
+}
+
+export async function newDocument(width = 612, height = 792): Promise<void> {
+  if (!(await confirmReplace())) return
   ed.load(makeDocument(width, height), new Map(), null, nextUntitled())
   ed.backstage = null
+  ed.touch()
 }
 
 let untitled = 1
@@ -29,6 +43,7 @@ function nextUntitled(): string {
 }
 
 export async function openDocument(): Promise<void> {
+  if (!(await confirmReplace())) return
   const f = await platform.openDocument()
   if (!f) return
   await openBytes(f.bytes, f.path, f.name)
@@ -54,40 +69,117 @@ async function packageBytes(template?: TemplateMeta): Promise<Uint8Array> {
   return writePackage({ doc, assets: ed.assets.all, thumbnail, template })
 }
 
+/** Show a save/open problem instead of failing silently. */
+function reportFileError(action: string, e: unknown): void {
+  const msg = (e as Error)?.message ?? String(e)
+  ed.setStatus(`${action} failed`)
+  alert(`ReflectDesign couldn't ${action.toLowerCase()} this file.\n\n${msg}`)
+}
+
 export async function save(): Promise<boolean> {
+  // Editing a template (File › New › New Blank Template): Save updates the template.
+  if (ed.templateMeta) return saveTemplateInPlace()
   if (!ed.filePath) return saveAs()
-  const bytes = await packageBytes()
-  const path = await platform.saveDocument(bytes, ed.filePath, ed.fileName, 'rdx')
-  if (!path) return false
-  ed.markSaved(path)
-  ed.setStatus('Saved')
-  return true
+  try {
+    const bytes = await packageBytes()
+    const path = await platform.saveDocument(bytes, ed.filePath, ed.fileName, 'rdx')
+    if (!path) return false
+    ed.markSaved(path)
+    ed.setStatus('Saved')
+    return true
+  } catch (e) {
+    reportFileError('Save', e)
+    return false
+  }
 }
 
 export async function saveAs(): Promise<boolean> {
-  const bytes = await packageBytes()
-  const path = await platform.saveDocument(bytes, null, `${ed.fileName}.rdx`, 'rdx')
-  if (!path) return false
-  ed.markSaved(path, path.split(/[\\/]/).pop())
-  ed.backstage = null
-  ed.setStatus('Saved')
-  return true
+  try {
+    const bytes = await packageBytes()
+    const path = await platform.saveDocument(bytes, null, `${ed.fileName}.rdx`, 'rdx')
+    if (!path) return false
+    // Saving as a publication ends template editing; the template stays as it was last saved.
+    ed.templateMeta = null
+    ed.markSaved(path, path.split(/[\\/]/).pop())
+    ed.backstage = null
+    ed.setStatus('Saved')
+    return true
+  } catch (e) {
+    reportFileError('Save', e)
+    return false
+  }
 }
 
 export async function saveAsTemplate(meta: TemplateMeta): Promise<boolean> {
-  const bytes = await packageBytes(meta)
-  const path = await platform.saveTemplate(bytes, meta.name)
-  if (path) ed.setStatus(`Saved template "${meta.name}"`)
-  return !!path
+  try {
+    const bytes = await packageBytes(meta)
+    const path = await platform.saveTemplate(bytes, meta.name)
+    if (path) ed.setStatus(`Saved template "${meta.name}"`)
+    return !!path
+  } catch (e) {
+    reportFileError('Save', e)
+    return false
+  }
 }
 
-export function newFromStarter(t: StarterTemplate): void {
+async function saveTemplateInPlace(): Promise<boolean> {
+  const meta = ed.templateMeta!
+  const ok = await saveAsTemplate(meta)
+  if (ok) ed.markSaved(null, meta.name)
+  return ok
+}
+
+/** Names of the personal templates already saved (for duplicate checks). */
+export async function personalTemplateNames(): Promise<string[]> {
+  try {
+    return (await platform.listTemplates()).filter((t) => !t.builtIn).map((t) => t.name)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * File › New › New Blank Template: start a blank design that is saved as a
+ * personal template. It is saved straight away so it shows up under
+ * New › Personal, and Save (Ctrl+S) keeps updating that template.
+ */
+export async function newBlankTemplate(meta: TemplateMeta, width: number, height: number): Promise<boolean> {
+  if (!(await confirmReplace())) return false
+  ed.load(makeDocument(width, height), new Map(), null, meta.name)
+  ed.templateMeta = { ...meta }
+  ed.updateTitle()
+  const ok = await saveTemplateInPlace()
+  ed.backstage = null
+  ed.touch()
+  return ok
+}
+
+/** File › Open › Recent: open a file from the recent list. */
+export async function openRecent(path: string): Promise<void> {
+  if (!(await confirmReplace())) return
+  let f: Awaited<ReturnType<typeof platform.openRecent>>
+  try {
+    f = await platform.openRecent(path)
+  } catch (e) {
+    reportFileError('Open', e)
+    return
+  }
+  if (!f) {
+    alert('That file could not be found. It may have been moved, renamed or deleted, so it has been removed from the Recent list.')
+    return
+  }
+  await openBytes(f.bytes, f.path, f.name)
+}
+
+export async function newFromStarter(t: StarterTemplate): Promise<void> {
+  if (!(await confirmReplace())) return
   ed.load(t.build(), new Map(), null, nextUntitled())
   ed.backstage = null
   ed.touch()
 }
 
 export async function newFromTemplate(path: string): Promise<void> {
+  if (!(await confirmReplace())) return
   const bytes = await platform.readTemplate(path)
   await openBytes(bytes, null, 'template.rdt')
 }
@@ -248,15 +340,53 @@ export function insertPicturePlaceholder(): void {
 // ---------- clipboard ----------
 
 interface ClipData {
+  /** Identifies this copy on the system clipboard. */
+  id: string
+  /** Plain text written to the system clipboard alongside it. */
+  text: string
   objects: SceneObject[]
   stories: RDocument['stories']
   assets: RDocument['assets']
+  /** Picture bytes, so a paste into another publication still has them. */
+  assetData: Map<Id, AssetData>
 }
 let clipboard: ClipData | null = null
 let pasteCount = 0
 
+/** Clipboard format that marks ReflectDesign objects on the system clipboard. */
+export const CLIP_MIME = 'application/x-reflectdesign-objects'
+
 export function hasClipboard(): boolean {
   return clipboard !== null
+}
+
+/**
+ * Is the system clipboard still holding the objects we copied? If the person
+ * has copied something in another app since, that newer content wins.
+ */
+export function clipboardIsOurs(dt: DataTransfer | null | undefined): boolean {
+  if (!clipboard) return false
+  if (!dt) return true
+  const types = Array.from(dt.types ?? [])
+  if (types.includes(CLIP_MIME)) return dt.getData(CLIP_MIME) === clipboard.id
+  // Our marker didn't survive (some platforms drop custom formats): compare the text.
+  if (types.some((t) => t.startsWith('image/')) || (dt.files && dt.files.length > 0)) return false
+  return (dt.getData('text/plain') ?? '') === clipboard.text
+}
+
+/** Put a marker (and the copied text) on the system clipboard. */
+function writeSystemClipboard(text: string, id: string): void {
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return
+  const onCopy = (ev: ClipboardEvent) => {
+    ev.clipboardData?.setData('text/plain', text)
+    ev.clipboardData?.setData(CLIP_MIME, id)
+    ev.preventDefault()
+  }
+  document.addEventListener('copy', onCopy)
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { ok = false }
+  document.removeEventListener('copy', onCopy)
+  if (!ok) navigator.clipboard?.writeText(text).catch(() => {})
 }
 
 /** Paste plain text from another app as a new text box. */
@@ -276,14 +406,28 @@ export function copy(): void {
   if (!objs.length) return
   const stories: ClipData['stories'] = {}
   const assets: ClipData['assets'] = {}
+  const assetData = new Map<Id, AssetData>()
+  const texts: string[] = []
   const walk = (o: SceneObject) => {
-    if (o.type === 'text' && ed.doc.stories[o.storyId]) stories[o.storyId] = structuredClone(ed.doc.stories[o.storyId])
-    if (o.type === 'picture' && o.assetId && ed.doc.assets[o.assetId]) assets[o.assetId] = ed.doc.assets[o.assetId]
+    if (o.type === 'text' && ed.doc.stories[o.storyId]) {
+      if (!stories[o.storyId]) {
+        const s = ed.doc.stories[o.storyId]
+        texts.push(textOfRange(s, { para: 0, offset: 0 }, endOfStory(s)))
+      }
+      stories[o.storyId] = structuredClone(ed.doc.stories[o.storyId])
+    }
+    if (o.type === 'picture' && o.assetId && ed.doc.assets[o.assetId]) {
+      assets[o.assetId] = structuredClone(ed.doc.assets[o.assetId])
+      const data = ed.assets.get(o.assetId)
+      if (data) assetData.set(o.assetId, data)
+    }
     if (o.type === 'group') o.children.forEach(walk)
   }
   objs.forEach(walk)
-  clipboard = { objects: structuredClone(objs), stories, assets }
+  const text = texts.join('\n')
+  clipboard = { id: newId('clip'), text, objects: structuredClone(objs), stories, assets, assetData }
   pasteCount = 0
+  writeSystemClipboard(text, clipboard.id)
 }
 
 export function cut(): void {
@@ -296,10 +440,14 @@ export function paste(): void {
   const clip = clipboard
   pasteCount++
   let ids: Id[] = []
+  // Pictures copied from another publication: bring their bytes along.
+  for (const [id, data] of clip.assetData) if (!ed.assets.get(id)) ed.assets.put(data)
   ed.change('Paste', (doc) => {
-    Object.assign(doc.stories, structuredClone(clip.stories))
-    Object.assign(doc.assets, clip.assets)
-    const copies = cloneObjects(doc, clip.objects)
+    // The copies get fresh stories made from the clipboard's text. The
+    // originals' stories in the document are left alone (they may have been
+    // edited since the copy).
+    for (const [id, info] of Object.entries(clip.assets)) doc.assets[id] ??= structuredClone(info)
+    const copies = cloneObjects(doc, clip.objects, clip.stories)
     for (const c of copies) translate(c, 12 * pasteCount, 12 * pasteCount)
     ed.page.objects.push(...copies)
     ids = copies.map((c) => c.id)
@@ -408,7 +556,8 @@ export function align(kind: AlignKind, relativeToMargins = false): void {
 }
 
 export function distribute(dir: 'h' | 'v'): void {
-  const objs = ed.selectedObjects
+  // Locked objects stay where they are (like Align).
+  const objs = ed.selectedObjects.filter((o) => !o.locked)
   if (objs.length < 3) return
   const items = objs.map((o) => ({ id: o.id, b: boundsOfObjects([o]) }))
   items.sort((a, b) => (dir === 'h' ? a.b.x - b.b.x : a.b.y - b.b.y))
@@ -567,6 +716,28 @@ export function formatText(label: string, patch: Partial<CharStyle>, coalesce?: 
       if (story) applyCharStyle(story, t.from, t.to, patch)
     }
   }, coalesce)
+}
+
+/** Formatting shared by all the text the formatting commands would act on. */
+export function currentTextStyle(): Partial<CharStyle> {
+  const targets = textTargets()
+  const e = ed.editing
+  let common: Partial<CharStyle> | null = null
+  for (const t of targets) {
+    const story = ed.doc.stories[t.storyId]
+    if (!story) continue
+    const s = commonCharStyle(story, t.from, t.to)
+    if (!common) common = { ...s }
+    else for (const k of Object.keys(common) as Array<keyof CharStyle>) if (JSON.stringify(common[k]) !== JSON.stringify(s[k])) delete common[k]
+  }
+  return { ...(common ?? {}), ...(e?.pending ?? {}) }
+}
+
+/** Ctrl+B / Ctrl+I / Ctrl+U: turn the style on, or off if all the text already has it. */
+export function toggleTextStyle(prop: 'bold' | 'italic' | 'underline'): void {
+  const cur = currentTextStyle()
+  if (prop === 'underline') formatText('Underline', { underline: cur.underline && cur.underline !== 'none' ? 'none' : 'single' })
+  else formatText(prop === 'bold' ? 'Bold' : 'Italic', { [prop]: !cur[prop] })
 }
 
 export function formatParagraph(label: string, patch: Partial<ParaStyle>): void {

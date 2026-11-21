@@ -6,7 +6,7 @@ import { SpellingDialog } from './SpellingDialog'
 import { GoogleFontsDialog } from './GoogleFontsDialog'
 import { FormatDialog } from './FormatDialog'
 
-type DialogKind = 'pageSetup' | 'renamePage' | 'saveTemplate' | 'spelling' | 'googleFonts' | 'format'
+type DialogKind = 'pageSetup' | 'renamePage' | 'saveTemplate' | 'newTemplate' | 'spelling' | 'googleFonts' | 'format'
 
 const Ctx = createContext<{ open: (k: DialogKind) => void }>({ open: () => {} })
 export const useDialogs = () => useContext(Ctx)
@@ -20,6 +20,7 @@ export function DialogHost({ children }: { children: ReactNode }) {
       {open === 'pageSetup' && <PageSetupDialog onClose={close} />}
       {open === 'renamePage' && <RenamePageDialog onClose={close} />}
       {open === 'saveTemplate' && <SaveTemplateDialog onClose={close} />}
+      {open === 'newTemplate' && <NewTemplateDialog onClose={close} />}
       {open === 'spelling' && <SpellingDialog onClose={close} />}
       {open === 'googleFonts' && <GoogleFontsDialog onClose={close} />}
       {open === 'format' && <FormatDialog onClose={close} />}
@@ -127,6 +128,62 @@ function RenamePageDialog({ onClose }: { onClose: () => void }) {
         <span>Page title:</span>
         <input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder={`Page ${ed.pageIndex + 1}`} />
       </label>
+    </Dialog>
+  )
+}
+
+const TEMPLATE_CATEGORIES = ['Bulletin Boards', 'Posters', 'Flyers', 'Signs', 'Classroom', 'Seasonal', 'Personal']
+
+/** File › New › New Blank Template: name the template and pick its page size. */
+function NewTemplateDialog({ onClose }: { onClose: () => void }) {
+  const u = ed.unit
+  const f = (v: number) => formatLength(v, u)
+  const [name, setName] = useState('My Template')
+  const [category, setCategory] = useState('Bulletin Boards')
+  const [description, setDescription] = useState('')
+  const [w, setW] = useState(f(612))
+  const [h, setH] = useState(f(792))
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const ok = async () => {
+    if (busy) return
+    const n = name.trim()
+    const pw = parseLength(w, u), ph = parseLength(h, u)
+    if (!n) return setError('Give the template a name.')
+    if (!pw || !ph || pw < 18 || ph < 18) return setError('Enter a page width and height of at least 0.25".')
+    if (pw > 241 * 72 || ph > 241 * 72) return setError('Pages can be up to 241" on each side.')
+    setBusy(true)
+    const existing = await cmd.personalTemplateNames()
+    if (existing.some((x) => x.toLowerCase() === n.toLowerCase())) {
+      setBusy(false)
+      return setError('You already have a template with that name. Choose another name.')
+    }
+    onClose()
+    await cmd.newBlankTemplate({ name: n, category: category.trim() || 'Personal', description }, pw, ph)
+  }
+  return (
+    <Dialog title="New Blank Template" okLabel="Create" onClose={onClose} onOk={ok} width={460}>
+      <p className="muted">Design your template, then press <b>Save</b> (Ctrl+S) to update it. It appears under <b>New › Personal</b>.</p>
+      <label className="field wide"><span>Template name:</span><input value={name} onChange={(e) => setName(e.target.value)} onFocus={(e) => e.target.select()} autoFocus /></label>
+      <label className="field wide">
+        <span>Category:</span>
+        <input list="tpl-cats-new" value={category} onChange={(e) => setCategory(e.target.value)} />
+        <datalist id="tpl-cats-new">{TEMPLATE_CATEGORIES.map((c) => <option key={c} value={c} />)}</datalist>
+      </label>
+      <label className="field wide">
+        <span>Page size:</span>
+        <select value="" onChange={(e) => {
+          const p = PAGE_PRESETS.find((x) => x.name === e.target.value)
+          if (p) { setW(f(p.width)); setH(f(p.height)) }
+        }}>
+          <option value="">Choose a size…</option>
+          {PAGE_PRESETS.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+        </select>
+      </label>
+      <label className="field wide"><span>Width:</span><input value={w} onChange={(e) => setW(e.target.value)} onFocus={(e) => e.target.select()} /></label>
+      <label className="field wide"><span>Height:</span><input value={h} onChange={(e) => setH(e.target.value)} onFocus={(e) => e.target.select()} /></label>
+      <label className="field wide"><span>Description:</span><textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} /></label>
+      {error && <div className="error">{error}</div>}
     </Dialog>
   )
 }

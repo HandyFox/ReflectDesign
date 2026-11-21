@@ -37,7 +37,7 @@ function AppBody() {
         if (await cmd.save()) platform.forceClose()
       } else if (c === 'open-file' && arg) {
         const f = arg as { path: string; name: string; bytes: Uint8Array }
-        await cmd.openBytes(f.bytes, f.path, f.name)
+        if (await cmd.confirmReplace()) await cmd.openBytes(f.bytes, f.path, f.name)
       }
     })
     ed.updateTitle()
@@ -47,13 +47,17 @@ function AppBody() {
     const onKey = (ev: KeyboardEvent) => {
       const ctrl = ev.ctrlKey || ev.metaKey
       const key = ev.key.toLowerCase()
+      // Ribbon boxes and dialog fields keep their own undo/redo (the hidden
+      // text-editing input is not one of them: there, undo is the document's).
+      const inField = isTypingTarget(ev.target) && !(ev.target as HTMLElement).classList?.contains('text-input')
       // These work everywhere, even while typing in a text box.
       if (ctrl && key === 's') { ev.preventDefault(); ev.shiftKey ? cmd.saveAs() : cmd.save(); return }
-      if (ctrl && key === 'o') { ev.preventDefault(); cmd.openDocument(); return }
+      // Ctrl+O shows File › Open with the Recent list, like Publisher.
+      if (ctrl && key === 'o') { ev.preventDefault(); ed.backstage = 'open'; ed.touch(); return }
       if (ctrl && key === 'n') { ev.preventDefault(); ed.backstage = 'new'; ed.touch(); return }
       if (ctrl && key === 'p') { ev.preventDefault(); ed.backstage = 'print'; ed.touch(); return }
-      if (ctrl && key === 'z' && !ev.shiftKey) { ev.preventDefault(); ed.undo(); return }
-      if (ctrl && (key === 'y' || (key === 'z' && ev.shiftKey))) { ev.preventDefault(); ed.redo(); return }
+      if (ctrl && key === 'z' && !ev.shiftKey && !inField) { ev.preventDefault(); ed.undo(); return }
+      if (ctrl && (key === 'y' || (key === 'z' && ev.shiftKey)) && !inField) { ev.preventDefault(); ed.redo(); return }
       if (ev.key === 'F7') { ev.preventDefault(); openSpelling(); return }
       if (ev.key === 'F9') { ev.preventDefault(); ed.zoom === 1 ? ed.requestView('fit-page') : ed.setZoom(1); return }
       if (ed.backstage) { if (ev.key === 'Escape') { ed.backstage = null; ed.touch() } return }
@@ -69,9 +73,8 @@ function AppBody() {
       if (ctrl && key === '-') { ev.preventDefault(); cmd.zoomBy(0.8); return }
       if (ctrl && (key === 'b' || key === 'i' || key === 'u')) {
         ev.preventDefault()
-        const prop = key === 'b' ? 'bold' : key === 'i' ? 'italic' : 'underline'
-        if (prop === 'underline') cmd.formatText('Underline', { underline: 'single' })
-        else cmd.formatText(prop === 'bold' ? 'Bold' : 'Italic', { [prop]: true })
+        // Toggles, like Publisher: off again if all the selected text already has it.
+        cmd.toggleTextStyle(key === 'b' ? 'bold' : key === 'i' ? 'italic' : 'underline')
         return
       }
       if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); cmd.deleteSelection(); return }
@@ -98,6 +101,8 @@ function AppBody() {
     }
     const onPaste = async (ev: ClipboardEvent) => {
       if (ed.editing || isTypingTarget(ev.target)) return
+      // Our own copied objects, unless something newer was copied in another app since.
+      if (cmd.clipboardIsOurs(ev.clipboardData)) { ev.preventDefault(); cmd.paste(); return }
       const items = Array.from(ev.clipboardData?.items ?? [])
       const images = items.filter((i) => i.type.startsWith('image/')).map((i) => i.getAsFile()).filter((f): f is File => !!f)
       ev.preventDefault()
@@ -106,8 +111,7 @@ function AppBody() {
         return
       }
       const text = ev.clipboardData?.getData('text/plain')
-      if (cmd.hasClipboard()) cmd.paste()
-      else if (text) cmd.pasteTextAsBox(text)
+      if (text) cmd.pasteTextAsBox(text)
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('paste', onPaste)

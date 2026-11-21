@@ -166,12 +166,26 @@ function blockedBy(ob: Obstacle, top: number, bottom: number): Interval[] {
   }
 }
 
-/** Find the page a top-level object lives on and its stacking index. */
-function pageOf(doc: RDocument, id: Id): { objects: SceneObject[]; index: number } | null {
+/**
+ * Everything drawn in front of an object on its page: objects above it in its
+ * own list, and — when it is inside a group — the group-mates above it and
+ * everything above the group. Returns null if the object isn't on a page.
+ */
+export function objectsAbove(doc: RDocument, id: Id): SceneObject[] | null {
   const contains = (o: SceneObject): boolean => o.id === id || (o.type === 'group' && o.children.some(contains))
+  const walk = (list: SceneObject[]): SceneObject[] | null => {
+    const index = list.findIndex(contains)
+    if (index < 0) return null
+    const above = flatten(list.slice(index + 1))
+    const o = list[index]
+    if (o.id === id) return above
+    if (o.type !== 'group') return null
+    const inner = walk(o.children)
+    return inner ? [...inner, ...above] : null
+  }
   for (const p of doc.pages) {
-    const index = p.objects.findIndex(contains)
-    if (index >= 0) return { objects: p.objects, index }
+    const r = walk(p.objects)
+    if (r) return r
   }
   return null
 }
@@ -185,11 +199,9 @@ export function buildWrapFn(doc: RDocument, chain: TextBoxObject[], assets: Asse
   const perBox = new Map<Id, Obstacle[]>()
   for (const box of chain) {
     if (!box.respectWrap) continue
-    const where = pageOf(doc, box.id)
-    if (!where) continue
-    const above = flatten(where.objects.slice(where.index + 1)).filter((o) =>
-      o.wrap.mode !== 'none' && o.id !== box.id && !(o.type === 'text' && o.storyId === box.storyId))
     // Objects grouped with the box but drawn above it also count.
+    const above = (objectsAbove(doc, box.id) ?? []).filter((o) =>
+      o.wrap.mode !== 'none' && o.id !== box.id && !(o.type === 'text' && o.storyId === box.storyId))
     const obstacles = above
       .map((o) => obstacleFor(o, box, assets))
       .filter((ob) => ob.maxX > 0 && ob.minX < box.width && ob.maxY > 0 && ob.minY < box.height)

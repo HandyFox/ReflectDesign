@@ -1,7 +1,7 @@
 // Pure-ish document operations. They mutate the document passed in; the editor
 // store snapshots the document before each change for undo.
 
-import type { GroupObject, Id, Page, RDocument, SceneObject, Story } from './types'
+import type { GroupObject, Id, Page, RDocument, SceneObject, Story, TextBoxObject } from './types'
 import { boundsOfObjects, makeGroup, makePage, newId } from './factory'
 
 export interface Frame {
@@ -248,25 +248,75 @@ export function ungroup(doc: RDocument, id: Id): SceneObject[] {
 
 // ---------- duplicate ----------
 
-/** Deep-copy objects with fresh ids. Text gets its own copy of the story. */
-export function cloneObjects(doc: RDocument, objs: SceneObject[]): SceneObject[] {
-  return objs.map((o) => cloneObject(doc, o))
+/**
+ * Deep-copy objects with fresh ids. Text gets its own copy of the story.
+ *
+ * Text boxes that are linked to each other *within* the copied set stay linked
+ * (and share one copy of their story), so duplicating a page with a linked
+ * chain gives a working chain instead of boxes that all repeat the same text.
+ *
+ * `sourceStories` is where the original text lives (the clipboard when
+ * pasting); it defaults to the document. The copies' stories are always added
+ * to `doc` and the source is never written to.
+ */
+export function cloneObjects(doc: RDocument, objs: SceneObject[], sourceStories: RDocument['stories'] = doc.stories): SceneObject[] {
+  // Every text box in the set, including those inside groups.
+  const texts: TextBoxObject[] = []
+  const walk = (l: SceneObject[]) => l.forEach((o) => { if (o.type === 'text') texts.push(o); else if (o.type === 'group') walk(o.children) })
+  walk(objs)
+
+  // Boxes joined by links inside the set form one component (union-find).
+  const parent = new Map<Id, Id>(texts.map((t) => [t.id, t.id]))
+  const find = (id: Id): Id => { let r = id; while (parent.get(r) !== r) r = parent.get(r)!; return r }
+  for (const t of texts) {
+    if (t.nextId && parent.has(t.nextId)) {
+      const next = texts.find((x) => x.id === t.nextId)
+      if (next && next.storyId === t.storyId) parent.set(find(t.id), find(t.nextId))
+    }
+  }
+
+  const idMap = new Map<Id, Id>()
+  const storyFor = new Map<Id, Id>() // component root → new story id
+  const ctx: CloneCtx = {
+    idMap,
+    storyOf: (box) => {
+      const root = find(box.id)
+      let sid = storyFor.get(root)
+      if (!sid) {
+        const story = sourceStories[box.storyId]
+        if (!story) return box.storyId
+        const s: Story = structuredClone(story)
+        s.id = newId('s')
+        doc.stories[s.id] = s
+        sid = s.id
+        storyFor.set(root, sid)
+      }
+      return sid
+    }
+  }
+  const copies = objs.map((o) => cloneObject(o, ctx))
+  // Re-point links at the copies; links leaving the set are dropped.
+  const fix = (l: SceneObject[]) => l.forEach((o) => {
+    if (o.type === 'text') o.nextId = o.nextId ? idMap.get(o.nextId) ?? null : null
+    else if (o.type === 'group') fix(o.children)
+  })
+  fix(copies)
+  return copies
 }
 
-function cloneObject(doc: RDocument, o: SceneObject): SceneObject {
+interface CloneCtx {
+  idMap: Map<Id, Id>
+  storyOf: (box: TextBoxObject) => Id
+}
+
+function cloneObject(o: SceneObject, ctx: CloneCtx): SceneObject {
   const c = structuredClone(o) as SceneObject
   c.id = newId()
-  if (c.type === 'text') {
-    const story = doc.stories[c.storyId]
-    if (story) {
-      const s: Story = structuredClone(story)
-      s.id = newId('s')
-      doc.stories[s.id] = s
-      c.storyId = s.id
-    }
-    c.nextId = null
-  } else if (c.type === 'group') {
-    c.children = c.children.map((ch) => cloneObject(doc, ch))
+  ctx.idMap.set(o.id, c.id)
+  if (c.type === 'text' && o.type === 'text') {
+    c.storyId = ctx.storyOf(o)
+  } else if (c.type === 'group' && o.type === 'group') {
+    c.children = o.children.map((ch) => cloneObject(ch, ctx))
   }
   return c
 }
@@ -291,13 +341,15 @@ export function duplicatePage(doc: RDocument, index: number): Page {
 
 export function deletePage(doc: RDocument, index: number): void {
   if (doc.pages.length <= 1) return
-  const [p] = doc.pages.splice(index, 1)
-  const ids: Id[] = []
-  const walk = (l: SceneObject[]) => l.forEach((o) => { ids.push(o.id); if (o.type === 'group') walk(o.children) })
+  const p = doc.pages[index]
+  // Take the page's text boxes out of their chains first, joining the boxes
+  // before and after (like deleting a single linked box), so a chain that
+  // runs through this page keeps flowing into the following pages.
+  const textIds: Id[] = []
+  const walk = (l: SceneObject[]) => l.forEach((o) => { if (o.type === 'text') textIds.push(o.id); if (o.type === 'group') walk(o.children) })
   walk(p.objects)
-  forEachObject(doc, (o) => {
-    if (o.type === 'text' && o.nextId && ids.includes(o.nextId)) o.nextId = null
-  })
+  for (const id of textIds) unlinkBox(doc, id)
+  doc.pages.splice(index, 1)
 }
 
 export function movePage(doc: RDocument, from: number, to: number): void {

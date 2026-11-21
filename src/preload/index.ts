@@ -5,6 +5,9 @@ const api: ReflectAPI = {
   platform: process.platform,
   openDocument: () => ipcRenderer.invoke('open-document'),
   saveDocument: (bytes, path, suggestedName, kind) => ipcRenderer.invoke('save-document', bytes, path, suggestedName, kind),
+  listRecent: () => ipcRenderer.invoke('recent-list'),
+  openRecent: (path) => ipcRenderer.invoke('recent-open', path),
+  removeRecent: (path) => ipcRenderer.invoke('recent-remove', path),
   pickImages: () => ipcRenderer.invoke('pick-images'),
   saveExport: (bytes, suggestedName, filterName, ext) => ipcRenderer.invoke('save-export', bytes, suggestedName, filterName, ext),
   exportPdf: (html, suggestedName) => ipcRenderer.invoke('export-pdf', html, suggestedName),
@@ -17,6 +20,7 @@ const api: ReflectAPI = {
   listTemplates: () => ipcRenderer.invoke('list-templates'),
   readTemplate: (path) => ipcRenderer.invoke('read-template', path),
   saveTemplate: (bytes, name) => ipcRenderer.invoke('save-template', bytes, name),
+  askUnsaved: (name) => ipcRenderer.invoke('ask-unsaved', name),
   setDirty: (dirty) => ipcRenderer.send('set-dirty', dirty),
   setTitle: (title) => ipcRenderer.send('set-title', title),
   onAppCommand: (cb) => {

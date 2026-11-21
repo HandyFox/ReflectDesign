@@ -50,6 +50,14 @@ const browserApi: ReflectAPI = {
     download(bytes, name, 'application/x-reflectdesign')
     return name
   },
+  // The browser test mode can't reopen files by path, so it has no recent list.
+  async listRecent() {
+    return []
+  },
+  async openRecent() {
+    return null
+  },
+  async removeRecent() {},
   async pickImages(): Promise<PickedImage[]> {
     const files = await pickFiles('image/*', true)
     return Promise.all(files.map(async (f) => ({ name: f.name, mime: f.type || 'image/png', bytes: new Uint8Array(await f.arrayBuffer()) })))
@@ -103,6 +111,9 @@ const browserApi: ReflectAPI = {
   async saveTemplate(bytes, name) {
     download(bytes, `${name}.rdt`, 'application/x-reflectdesign-template')
     return name
+  },
+  async askUnsaved(name) {
+    return window.confirm(`${name} has unsaved changes. Discard them?`) ? 'discard' : 'cancel'
   },
   setDirty() {},
   setTitle(title) { document.title = title },

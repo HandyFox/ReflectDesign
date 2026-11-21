@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { listSystemFonts } from './fonts'
 import { listTemplates, personalTemplateDir } from './templates'
 import { installGoogleFont, installedGoogleFonts, listGoogleFonts } from './googleFonts'
+import { addRecent, isRecent, listRecent, removeRecent } from './recent'
+import { writeFileAtomic } from './atomic'
 
 let mainWindow: BrowserWindow | null = null
 let dirty = false
@@ -43,8 +45,16 @@ function createWindow(): void {
     }
   })
 
-  // The ribbon replaces the classic menu bar, like Publisher.
-  Menu.setApplicationMenu(null)
+  // The ribbon replaces the classic menu bar, like Publisher. macOS still needs
+  // an app menu, or Cmd+Q and Cmd+C/V/X/A stop working in text fields. Undo and
+  // redo are left to the editor's own shortcuts.
+  Menu.setApplicationMenu(process.platform === 'darwin'
+    ? Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      { label: 'Edit', submenu: [{ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
+      { role: 'windowMenu' }
+    ])
+    : null)
 
   mainWindow.on('close', (e) => {
     if (!dirty || !mainWindow) return
@@ -82,7 +92,14 @@ function createWindow(): void {
 
 async function sendOpenPath(path: string): Promise<void> {
   if (!mainWindow) return
-  const bytes = await readFile(path)
+  let bytes: Buffer
+  try {
+    bytes = await readFile(path)
+  } catch (e) {
+    dialog.showErrorBox('ReflectDesign', `Could not open ${basename(path)}.\n\n${(e as Error).message}`)
+    return
+  }
+  addRecent(path)
   mainWindow.webContents.send('app-command', 'open-file', {
     path,
     name: basename(path),
@@ -104,7 +121,23 @@ function registerIpc(): void {
     if (res.canceled || res.filePaths.length === 0) return null
     const path = res.filePaths[0]
     const bytes = await readFile(path)
-    app.addRecentDocument(path)
+    addRecent(path)
+    return { path, name: basename(path), bytes: new Uint8Array(bytes) }
+  })
+
+  ipcMain.handle('recent-list', () => listRecent())
+  ipcMain.handle('recent-remove', (_e, path: string | null) => removeRecent(path))
+  ipcMain.handle('recent-open', async (_e, path: string) => {
+    // Only files that are on the list can be opened this way.
+    if (typeof path !== 'string' || !(await isRecent(path))) return null
+    let bytes: Buffer
+    try {
+      bytes = await readFile(path)
+    } catch {
+      await removeRecent(path)
+      return null
+    }
+    addRecent(path)
     return { path, name: basename(path), bytes: new Uint8Array(bytes) }
   })
 
@@ -122,8 +155,8 @@ function registerIpc(): void {
       if (res.canceled || !res.filePath) return null
       target = res.filePath
     }
-    await writeFile(target, Buffer.from(bytes))
-    app.addRecentDocument(target)
+    await writeFileAtomic(target, Buffer.from(bytes))
+    addRecent(target)
     return target
   })
 
@@ -151,7 +184,7 @@ function registerIpc(): void {
       filters: [{ name: filterName, extensions: [ext] }]
     })
     if (res.canceled || !res.filePath) return null
-    await writeFile(res.filePath, Buffer.from(bytes))
+    await writeFileAtomic(res.filePath, Buffer.from(bytes))
     return res.filePath
   })
 
@@ -174,7 +207,7 @@ function registerIpc(): void {
         margins: { top: 0, bottom: 0, left: 0, right: 0 }
       })
     )
-    await writeFile(res.filePath, pdf)
+    await writeFileAtomic(res.filePath, pdf)
     return res.filePath
   })
 
@@ -207,8 +240,22 @@ function registerIpc(): void {
     await mkdir(dir, { recursive: true })
     const safe = name.replace(/[^\w\- ]+/g, '').trim() || 'Template'
     const target = join(dir, `${safe}.rdt`)
-    await writeFile(target, Buffer.from(bytes))
+    await writeFileAtomic(target, Buffer.from(bytes))
     return target
+  })
+
+  // Save / Don't Save / Cancel before the current publication is replaced.
+  ipcMain.handle('ask-unsaved', async (_e, name: string) => {
+    if (!mainWindow) return 'discard'
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      buttons: ['Save', "Don't Save", 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+      title: 'ReflectDesign',
+      message: `Do you want to save the changes you made to ${name}?`
+    })
+    return response === 0 ? 'save' : response === 1 ? 'discard' : 'cancel'
   })
 
   ipcMain.on('set-dirty', (_e, value: boolean) => { dirty = value })
@@ -237,10 +284,27 @@ async function withPrintWindow<T>(html: string, fn: (win: BrowserWindow) => Prom
 }
 
 // A file passed on the command line (double-clicked in the file manager).
-const argPath = process.argv.slice(1).find((a) => /\.(rdx|rdt)$/i.test(a))
+const fileArg = (argv: string[]) => argv.slice(1).find((a) => /\.(rdx|rdt)$/i.test(a))
+const argPath = fileArg(process.argv)
 if (argPath) pendingOpenPath = argPath
 
+// One ReflectDesign at a time: opening another file while the app is running
+// hands it to the open window instead of starting a second copy.
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_e, argv) => {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+    const path = fileArg(argv)
+    if (path) sendOpenPath(path)
+  })
+}
+
 app.whenReady().then(() => {
+  if (!gotLock) return // another copy is already running and has been given the file
   registerIpc()
   createWindow()
   app.on('activate', () => {

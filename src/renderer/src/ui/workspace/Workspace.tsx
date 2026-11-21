@@ -663,10 +663,34 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
     return null
   }
 
-  /** Text box (on this page) whose interior, away from its border, is under the point. */
+  /** Front-most text box inside a group under the point. */
+  function textInGroupAt(g: GroupObject, p: Pt): TextBoxObject | null {
+    const slop = 3 / scale()
+    for (const c of [...g.children].reverse()) {
+      if (!hitObject(c, p, slop)) continue
+      if (c.type === 'text') return c
+      if (c.type === 'group') { const t = textInGroupAt(c, p); if (t) return t }
+      return null // something else in the group is in front
+    }
+    return null
+  }
+
+  function groupIsActive(g: GroupObject): boolean {
+    const ids = new Set<Id>()
+    const walk = (o: SceneObject) => { ids.add(o.id); if (o.type === 'group') o.children.forEach(walk) }
+    walk(g)
+    return ed.selection.some((id) => ids.has(id)) || (!!ed.editing && ids.has(ed.editing.boxId))
+  }
+
+  /**
+   * Text box (on this page) whose interior, away from its border, is under the point.
+   * Text boxes inside a group are reached once the group is selected (Publisher:
+   * first click selects the group, the next click goes into the text).
+   */
   function textInteriorAt(p: Pt): TextBoxObject | null {
     const o = objectAt(p)
-    const box = o && o.type === 'text' ? o : null
+    let box = o && o.type === 'text' ? o : null
+    if (o && o.type === 'group' && groupIsActive(o)) box = textInGroupAt(o, p)
     if (!box || box.locked) return null
     const l = toLocal(box, p)
     const grab = BORDER_GRAB / scale()
@@ -1179,9 +1203,11 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
         onPointerUp={onPointerUp}
         onDoubleClick={(ev) => {
           const { sx, sy } = eventPt(ev)
-          const hit = objectAt(toPt(sx, sy))
-          if (hit && hit.type === 'text' && !ed.editing) {
-            const l = toLocal(hit, toPt(sx, sy))
+          const p = toPt(sx, sy)
+          const o = objectAt(p)
+          const hit = o && o.type === 'group' ? textInGroupAt(o, p) : o
+          if (hit && hit.type === 'text' && !hit.locked && !ed.editing) {
+            const l = toLocal(hit, p)
             startEditing(hit.id, textPosAt(hit, l.x, l.y) ?? undefined)
           }
         }}

@@ -17,14 +17,28 @@ export interface SvgEnv {
   text: TextEngine
 }
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-const n = (v: number) => Number(v.toFixed(3))
+const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+/** A number for an attribute. Anything that isn't a finite number becomes 0. */
+const n = (v: number) => { const x = Number(v); return Number.isFinite(x) ? Number(x.toFixed(3)) : 0 }
+/**
+ * A colour for an attribute. Colours come from the document file, so anything
+ * that isn't a plain colour value is replaced rather than written into the SVG.
+ */
+export const col = (c: string | null | undefined, fallback = '#000000') => {
+  const v = String(c ?? '')
+  return /^#[0-9a-f]{3,8}$/i.test(v) || /^[a-z]{3,20}$/i.test(v) || /^rgba?\([\d.,\s%]+\)$/i.test(v) ? v : fallback
+}
+const mimeOf = (m: string) => (/^image\/[a-z0-9.+-]+$/i.test(m) ? m : 'application/octet-stream')
+
+/** Every page gets its own id prefix, so pages in one PDF never share gradients or filters. */
+let pageCounter = 0
 
 class Defs {
   private items: string[] = []
   private count = 0
+  constructor(private readonly prefix = `p${++pageCounter}`) {}
   id(prefix: string): string {
-    return `${prefix}${++this.count}`
+    return `${this.prefix}${prefix}${++this.count}`
   }
   add(s: string): void {
     this.items.push(s)
@@ -44,7 +58,7 @@ function base64(bytes: Uint8Array): string {
 function paintAttr(defs: Defs, fill: Fill, x: number, y: number, w: number, h: number): { paint: string; opacity: number } {
   switch (fill.type) {
     case 'none': return { paint: 'none', opacity: 1 }
-    case 'solid': return { paint: fill.color, opacity: fill.opacity }
+    case 'solid': return { paint: col(fill.color), opacity: n(fill.opacity) }
     case 'linear': {
       const id = defs.id('g')
       const a = (fill.angle * Math.PI) / 180
@@ -63,7 +77,7 @@ function paintAttr(defs: Defs, fill: Fill, x: number, y: number, w: number, h: n
 }
 
 function stops(s: Array<{ offset: number; color: string; opacity: number }>): string {
-  return s.map((st) => `<stop offset="${st.offset}" stop-color="${st.color}" stop-opacity="${st.opacity}"/>`).join('')
+  return s.map((st) => `<stop offset="${n(st.offset)}" stop-color="${col(st.color)}" stop-opacity="${n(st.opacity)}"/>`).join('')
 }
 
 const DASH: Record<Stroke['dash'], number[]> = { solid: [], dash: [4, 3], dot: [1, 2], dashDot: [4, 2, 1, 2], longDash: [8, 3] }
@@ -71,14 +85,14 @@ const DASH: Record<Stroke['dash'], number[]> = { solid: [], dash: [4, 3], dot: [
 function strokeAttrs(s: Stroke): string {
   if (s.width <= 0) return 'stroke="none"'
   const dash = DASH[s.dash].map((d) => d * Math.max(1, s.width))
-  return `stroke="${s.color}" stroke-opacity="${s.opacity}" stroke-width="${n(s.width)}"${dash.length ? ` stroke-dasharray="${dash.join(' ')}"` : ''}${s.dash === 'dot' ? ' stroke-linecap="round"' : ''}`
+  return `stroke="${col(s.color)}" stroke-opacity="${n(s.opacity)}" stroke-width="${n(s.width)}"${dash.length ? ` stroke-dasharray="${dash.join(' ')}"` : ''}${s.dash === 'dot' ? ' stroke-linecap="round"' : ''}`
 }
 
 function shadowFilter(defs: Defs, s: Shadow | null): string {
   if (!s) return ''
   const id = defs.id('f')
   // Canvas shadowBlur ≈ 2 × Gaussian sigma.
-  defs.add(`<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="${n(s.offsetX)}" dy="${n(s.offsetY)}" stdDeviation="${n(s.blur / 2)}" flood-color="${s.color}" flood-opacity="${s.opacity}"/></filter>`)
+  defs.add(`<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="${n(s.offsetX)}" dy="${n(s.offsetY)}" stdDeviation="${n(s.blur / 2)}" flood-color="${col(s.color)}" flood-opacity="${n(s.opacity)}"/></filter>`)
   return ` filter="url(#${id})"`
 }
 
@@ -116,16 +130,16 @@ function pictureSvg(env: SvgEnv, defs: Defs, o: PictureObject): string {
   if (!o.assetId) return boxFrame(defs, o)
   const a = env.assets.get(o.assetId)
   if (!a) return boxFrame(defs, o)
-  const iw = a.info.pixelWidth || 1, ih = a.info.pixelHeight || 1
+  const iw = n(a.info.pixelWidth) || 1, ih = n(a.info.pixelHeight) || 1
   const { left, top, right, bottom } = o.crop
   const vb = `${n(left * iw)} ${n(top * ih)} ${n((1 - left - right) * iw)} ${n((1 - top - bottom) * ih)}`
   const filters: string[] = []
-  if (o.brightness) filters.push(`brightness(${1 + o.brightness})`)
-  if (o.contrast) filters.push(`contrast(${1 + o.contrast})`)
+  if (o.brightness) filters.push(`brightness(${n(1 + o.brightness)})`)
+  if (o.contrast) filters.push(`contrast(${n(1 + o.contrast)})`)
   if (o.grayscale) filters.push('grayscale(1)')
   const style = filters.length ? ` style="filter:${filters.join(' ')}"` : ''
   const fill = o.fill.type !== 'none' ? (() => { const p = paintAttr(defs, o.fill, 0, 0, o.width, o.height); return `<rect width="${n(o.width)}" height="${n(o.height)}" fill="${p.paint}" fill-opacity="${p.opacity}"/>` })() : ''
-  const img = `<svg width="${n(o.width)}" height="${n(o.height)}" viewBox="${vb}" preserveAspectRatio="none" overflow="hidden"><image width="${iw}" height="${ih}" href="data:${a.info.mime};base64,${base64(a.bytes)}" opacity="${o.opacity}"${style}/></svg>`
+  const img = `<svg width="${n(o.width)}" height="${n(o.height)}" viewBox="${vb}" preserveAspectRatio="none" overflow="hidden"><image width="${iw}" height="${ih}" href="data:${mimeOf(a.info.mime)};base64,${base64(a.bytes)}" opacity="${n(o.opacity)}"${style}/></svg>`
   const border = o.stroke.width > 0 ? `<rect width="${n(o.width)}" height="${n(o.height)}" fill="none" ${strokeAttrs(o.stroke)}/>` : ''
   return `${fill}<g${shadowFilter(defs, o.effects.shadow)}>${img}</g>${border}`
 }
@@ -156,42 +170,61 @@ function lineSvg(defs: Defs, line: LaidLine, f: number): string {
     const x = line.x + run.x
     const y = line.baseline + shift + (run.dy ?? 0)
     const text = displayText(run.text, s)
-    if (s.highlight) out += `<rect x="${n(x)}" y="${n(line.top)}" width="${n(run.width)}" height="${n(line.height)}" fill="${s.highlight}"/>`
+    // (No highlight behind a drop cap, same as the screen.)
+    if (s.highlight && run.dy === undefined) out += `<rect x="${n(x)}" y="${n(line.top)}" width="${n(run.width)}" height="${n(line.height)}" fill="${col(s.highlight, '#ffff00')}"/>`
     // Text transparency: one group so fill, outline and underline fade together.
     const groupStart = out.length
     const runOpacity = Math.max(0, Math.min(1, s.opacity))
     const sc = s.scale / 100
     const tf = `translate(${n(x)} ${n(y)})${sc !== 1 ? ` scale(${n(sc)} 1)` : ''}`
     const ws = line.spaceExtra && !run.marker ? ` word-spacing="${n(line.spaceExtra / sc)}"` : ''
-    let fill = `fill="${s.color}"`
+    let fill = `fill="${col(s.color)}"`
     if (s.textFill && s.textFill.type !== 'none') {
       const p = paintAttr(defs, s.textFill, 0, line.top - y, run.width / sc, line.height)
       fill = `fill="${p.paint}" fill-opacity="${p.opacity}"`
     }
     const outline = s.textOutline && s.textOutline.width > 0
-      ? ` stroke="${s.textOutline.color}" stroke-opacity="${s.textOutline.opacity}" stroke-width="${n(s.textOutline.width)}" stroke-linejoin="round"${s.textOutline.dash !== 'solid' ? ` stroke-dasharray="${DASH[s.textOutline.dash].map((d) => d * Math.max(1, s.textOutline!.width)).join(' ')}"` : ''}`
+      ? ` stroke="${col(s.textOutline.color)}" stroke-opacity="${n(s.textOutline.opacity)}" stroke-width="${n(s.textOutline.width)}" stroke-linejoin="round"${s.textOutline.dash !== 'solid' ? ` stroke-dasharray="${DASH[s.textOutline.dash].map((d) => d * Math.max(1, s.textOutline!.width)).join(' ')}"` : ''}`
       : ''
     const attrs = `${fontAttrs(s, f)}${ws} xml:space="preserve"`
     if (s.textGlow) {
       const id = defs.id('f')
-      defs.add(`<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur in="SourceAlpha" stdDeviation="${n(s.textGlow.size / 2)}"/><feFlood flood-color="${s.textGlow.color}" flood-opacity="${s.textGlow.opacity}"/><feComposite operator="in" in2="SourceGraphic"/><feComposite operator="in"/></filter>`)
-      out += `<text transform="${tf}" ${attrs} fill="${s.textGlow.color}" filter="url(#${id})">${esc(text)}</text>`
+      defs.add(`<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur in="SourceAlpha" stdDeviation="${n(s.textGlow.size / 2)}"/><feFlood flood-color="${col(s.textGlow.color)}" flood-opacity="${n(s.textGlow.opacity)}"/><feComposite operator="in" in2="SourceGraphic"/><feComposite operator="in"/></filter>`)
+      out += `<text transform="${tf}" ${attrs} fill="${col(s.textGlow.color)}" filter="url(#${id})">${esc(text)}</text>`
     }
     out += `<text transform="${tf}" ${attrs} ${fill}${outline}${shadowFilter(defs, s.textShadow)}>${esc(text)}</text>`
     // Underline and strikethrough as rectangles, like the screen renderer.
     const thick = Math.max(0.5, size / 16)
     const trailing = (run.text.match(/\s+$/)?.[0].length ?? 0)
     const ulW = run.marker ? 0 : run.width - (line.last ? 0 : trailing * (size * 0.25 + line.spaceExtra))
-    if (s.underline !== 'none' && ulW > 0) {
-      const t = s.underline === 'thick' ? thick * 2 : thick
-      const uy = y + size * 0.12
-      out += `<rect x="${n(x)}" y="${n(uy)}" width="${n(ulW)}" height="${n(t)}" fill="${s.color}"/>`
-      if (s.underline === 'double') out += `<rect x="${n(x)}" y="${n(uy + t * 2)}" width="${n(ulW)}" height="${n(t)}" fill="${s.color}"/>`
-    }
-    if (s.strike && ulW > 0) out += `<rect x="${n(x)}" y="${n(y - size * 0.3)}" width="${n(ulW)}" height="${n(thick)}" fill="${s.color}"/>`
+    if (s.underline !== 'none' && ulW > 0) out += underlineSvg(s.underline, x, y + size * 0.12, ulW, thick, col(s.color))
+    if (s.strike && ulW > 0) out += `<rect x="${n(x)}" y="${n(y - size * 0.3)}" width="${n(ulW)}" height="${n(thick)}" fill="${col(s.color)}"/>`
     if (runOpacity < 1) out = `${out.slice(0, groupStart)}<g opacity="${n(runOpacity)}">${out.slice(groupStart)}</g>`
   }
   return out
+}
+
+/** Underline shapes, drawn exactly like the screen renderer (render/canvas.ts). */
+export function underlineSvg(kind: CharStyle['underline'], x: number, uy: number, w: number, thick: number, color: string): string {
+  const t = kind === 'thick' ? thick * 2 : thick
+  const rect = (rx: number, ry: number, rw: number) => `<rect x="${n(rx)}" y="${n(ry)}" width="${n(rw)}" height="${n(t)}" fill="${color}"/>`
+  switch (kind) {
+    case 'none': return ''
+    case 'double': return rect(x, uy, w) + rect(x, uy + t * 2, w)
+    case 'dotted':
+    case 'dash': {
+      const seg = kind === 'dotted' ? t : t * 4
+      let out = ''
+      for (let ux = 0; ux < w; ux += seg * 2) out += rect(x + ux, uy, Math.min(seg, w - ux))
+      return out
+    }
+    case 'wave': {
+      const pts: string[] = []
+      for (let ux = 0; ux <= w; ux += t) pts.push(`${n(x + ux)},${n(uy + Math.sin((ux / (t * 3)) * Math.PI) * t)}`)
+      return `<polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="${n(t)}"/>`
+    }
+    default: return rect(x, uy, w)
+  }
 }
 
 function backgroundSvg(env: SvgEnv, defs: Defs, page: Page, x: number, y: number, w: number, h: number): string {
@@ -199,7 +232,7 @@ function backgroundSvg(env: SvgEnv, defs: Defs, page: Page, x: number, y: number
   if (bg.type === 'picture') {
     const a = env.assets.get(bg.assetId)
     if (!a) return ''
-    const href = `data:${a.info.mime};base64,${base64(a.bytes)}`
+    const href = `data:${mimeOf(a.info.mime)};base64,${base64(a.bytes)}`
     if (bg.mode === 'tile') {
       const id = defs.id('p')
       const pw = (a.info.pixelWidth || 100) * 0.75, ph = (a.info.pixelHeight || 100) * 0.75
@@ -279,7 +312,10 @@ html, body { margin: 0; padding: 0; background: #fff; }
 .sheet:last-child { page-break-after: auto; break-after: auto; }
 .sheet > svg { position: absolute; left: 0; top: 0; }
 * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }`
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${sheets.map((s) => `<div class="sheet">${s.svg}</div>`).join('')}</body></html>`
+  // Pages are pure drawing: no script may run in the print/PDF window, even
+  // if a damaged or hostile file managed to smuggle markup in.
+  const csp = `<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; connect-src 'none'; frame-src 'none'">`
+  return `<!doctype html><html><head><meta charset="utf-8">${csp}<style>${css}</style></head><body>${sheets.map((s) => `<div class="sheet">${s.svg}</div>`).join('')}</body></html>`
 }
 
 export interface TileOptions {
