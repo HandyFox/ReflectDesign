@@ -229,6 +229,8 @@ export interface Guide {
   pos: number
 }
 
+import type { CardSetup } from './card'
+
 export interface Page {
   id: Id
   name: string
@@ -244,6 +246,8 @@ export interface PageSetup {
   margins: { top: number; right: number; bottom: number; left: number }
   /** Extra area beyond the trim for PDF bleed (points). */
   bleed: number
+  /** Set when the publication is a folded greeting card (pages are card panels). */
+  card?: CardSetup
 }
 
 export interface AssetInfo {

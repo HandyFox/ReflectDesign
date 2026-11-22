@@ -17,6 +17,8 @@ feel like **Microsoft Publisher 2016/2019** on Linux (Ubuntu), Windows and macOS
 - PDF export for print shops, PNG export (any DPI, transparent background)
 - Your system fonts plus a built-in Google Fonts browser
 - Starter templates, Save As Template and New Blank Template
+- Greeting cards: quarter-fold and half-fold, side or top fold, standard card
+  sizes, and printing laid out ready to fold
 - Recent files on the File › Open screen
 
 ## Install on Ubuntu

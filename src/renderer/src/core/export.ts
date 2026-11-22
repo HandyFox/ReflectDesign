@@ -4,7 +4,8 @@ import { editor as ed } from './editor'
 import { boundsOfObjects } from './model/factory'
 import type { Page, SceneObject } from './model/types'
 import { drawObjects, renderPage, type RenderEnv } from './render/canvas'
-import { fitPageToSheet, pageToSvg, sheetsToHtml, tilePage, type PrintSheet, type SvgEnv } from './render/svg'
+import { cardSheets, fitPageToSheet, pageToSvg, sheetsToHtml, tilePage, type PrintSheet, type SvgEnv } from './render/svg'
+import { cardPlan, cardsOf, sheetFor, type CardPlan } from './model/card'
 import { platform } from '../platform'
 import { fontFaceCss } from './fontRegistry'
 
@@ -193,4 +194,77 @@ export async function printDocument(o: PrintOptions): Promise<boolean> {
   const sheets = buildPrintSheets(o)
   const { w, h } = paperDims(o)
   return platform.printHtml(sheetsToHtml(sheets, fontFaceCss(ed.doc)), w, h)
+}
+
+// ---------- greeting cards ----------
+
+export interface CardPrintOptions {
+  /** Every card, or only the card the current page belongs to. */
+  cards: 'all' | 'current'
+  /** Paper (either orientation; it is turned to fit the card). */
+  paper: { width: number; height: number }
+  /** Turn the inside sheet upside down (if a test print came out that way). */
+  insideUpsideDown: boolean
+  /** Trim and fold marks around the card when the paper is bigger than it. */
+  marks: boolean
+}
+
+/** The folded-card layout of the open publication, or null if it isn't a card. */
+export function currentCardPlan(): CardPlan | null {
+  const ps = ed.doc.pageSetup
+  return ps.card ? cardPlan(ps.card.fold, ps.width, ps.height) : null
+}
+
+/** Default print settings for the open card. */
+export function defaultCardOptions(): CardPrintOptions {
+  const c = ed.doc.pageSetup.card
+  return {
+    cards: 'all',
+    paper: c ? { width: c.sheetWidth, height: c.sheetHeight } : { width: 612, height: 792 },
+    insideUpsideDown: false,
+    marks: true
+  }
+}
+
+/** Paper size and orientation the card prints on, and whether it has to be shrunk. */
+export function cardSheetSize(o: CardPrintOptions): { width: number; height: number; shrinks: boolean } {
+  const plan = currentCardPlan()
+  if (!plan) return { ...o.paper, shrinks: false }
+  const s = sheetFor(plan, o.paper)
+  return { ...s, shrinks: plan.width > s.width + 0.6 || plan.height > s.height + 0.6 }
+}
+
+/** Which cards (sets of four page indexes) the options cover. */
+export function cardsToPrint(o: CardPrintOptions): Array<Array<number | null>> {
+  const all = cardsOf(ed.doc.pages.length)
+  return o.cards === 'all' ? all : [all[Math.floor(ed.pageIndex / 4)]]
+}
+
+/** Printer sheets for the card(s), laid out so they read correctly once folded. */
+export function buildCardSheets(o: CardPrintOptions): PrintSheet[] {
+  const plan = currentCardPlan()
+  if (!plan) return []
+  const env = svgEnv()
+  const { width: pw, height: ph } = ed.doc.pageSetup
+  const sheet = cardSheetSize(o)
+  return cardsToPrint(o).flatMap((idx) => {
+    const pages = idx.map((i) => (i === null ? null : pageToSvg(env, ed.doc.pages[i])))
+    return cardSheets(pages, plan, pw, ph, { paperWidth: sheet.width, paperHeight: sheet.height, insideUpsideDown: o.insideUpsideDown, marks: o.marks })
+  })
+}
+
+export async function printCard(o: CardPrintOptions): Promise<boolean> {
+  const sheets = buildCardSheets(o)
+  if (!sheets.length) return false
+  const { width, height } = cardSheetSize(o)
+  return platform.printHtml(sheetsToHtml(sheets, fontFaceCss(ed.doc)), width, height)
+}
+
+/** A print-ready PDF of the card: the unfolded sheet(s), ready to print and fold. */
+export async function exportCardPdf(o: CardPrintOptions): Promise<string | null> {
+  const sheets = buildCardSheets(o)
+  if (!sheets.length) return null
+  const path = await platform.exportPdf(sheetsToHtml(sheets, fontFaceCss(ed.doc)), `${ed.fileName} (print and fold).pdf`)
+  if (path) ed.setStatus(`Saved PDF: ${path}`)
+  return path
 }

@@ -9,6 +9,7 @@ import {
 import { editor as ed } from '@core/editor'
 import * as cmd from '@core/commands'
 import { PAGE_PRESETS, formatLength } from '@core/model/units'
+import { CARD_PRESETS } from '@core/model/card'
 import type { Autofit, SceneObject, ShapeKind, TextBoxObject, VAlign } from '@core/model/types'
 import { SHAPE_GALLERY, SHAPE_NAMES } from '@core/geometry/shapes'
 import { shapePath } from '@core/geometry/shapes'
@@ -220,11 +221,19 @@ export function PageDesignTab() {
                   <MenuHeader>{g}</MenuHeader>
                   {PAGE_PRESETS.filter((p) => p.group === g).map((p) => (
                     <MenuItem key={p.name} label={p.name}
-                      checked={Math.abs(p.width - width) < 0.5 && Math.abs(p.height - height) < 0.5}
-                      onClick={() => { cmd.setPageSize(p.width, p.height); close() }} />
+                      checked={!ed.doc.pageSetup.card && Math.abs(p.width - width) < 0.5 && Math.abs(p.height - height) < 0.5}
+                      onClick={() => { cmd.setPlainPageSize(p.width, p.height); close() }} />
                   ))}
                 </div>
               ))}
+              <div>
+                <MenuHeader>Greeting Cards</MenuHeader>
+                {CARD_PRESETS.map((p) => (
+                  <MenuItem key={p.id} label={p.name}
+                    checked={ed.doc.pageSetup.card?.fold === p.fold && Math.abs(p.width - width) < 0.5 && Math.abs(p.height - height) < 0.5}
+                    onClick={() => { cmd.setCardLayout(p.fold, p.width, p.height, p.sheet); close() }} />
+                ))}
+              </div>
               <MenuSeparator />
               <MenuItem label="Create New Page Size..." onClick={() => { dialogs.open('pageSetup'); close() }} />
               <MenuItem label="More Preset Page Sizes..." onClick={() => { dialogs.open('pageSetup'); close() }} />

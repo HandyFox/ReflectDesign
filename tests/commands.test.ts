@@ -154,3 +154,25 @@ describe('New Blank Template', () => {
     expect(ed.templateMeta).toBeNull()
   })
 })
+
+describe('greeting cards', () => {
+  it('New card, turn it on its side, and back to a full page', async () => {
+    const { CARD_PRESETS } = await import('@core/model/card')
+    ed.dirty = false
+    await cmd.newCard(CARD_PRESETS[0])
+    expect(ed.doc.pages.map((p) => p.name)).toEqual(['Front', 'Inside Left', 'Inside Right', 'Back'])
+    cmd.swapOrientation('landscape')
+    expect(ed.doc.pageSetup.card?.fold).toBe('quarterTop')
+    expect([ed.doc.pageSetup.width, ed.doc.pageSetup.height]).toEqual([396, 306])
+    expect(ed.doc.pages[1].name).toBe('Inside Top')
+    ed.undo()
+    expect(ed.doc.pageSetup.card?.fold).toBe('quarterSide')
+    ed.goToPage(3)
+    cmd.deleteCurrentPage()
+    cmd.addPage()
+    expect(ed.doc.pages.map((p) => p.name)).toEqual(['Front', 'Inside Left', 'Inside Right', 'Back'])
+    cmd.setPlainPageSize(612, 792)
+    expect(ed.doc.pageSetup.card).toBeUndefined()
+    expect(ed.doc.pages[0].name).toBe('')
+  })
+})

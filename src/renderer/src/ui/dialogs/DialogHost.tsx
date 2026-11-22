@@ -2,6 +2,7 @@ import { createContext, useContext, useState, type ReactNode } from 'react'
 import { editor as ed } from '@core/editor'
 import * as cmd from '@core/commands'
 import { PAGE_PRESETS, formatLength, parseLength } from '@core/model/units'
+import { A4, CARD_PRESETS, FOLD_KINDS, FOLD_NAMES, LETTER, cardPlan, sheetFor, type FoldKind } from '@core/model/card'
 import { SpellingDialog } from './SpellingDialog'
 import { GoogleFontsDialog } from './GoogleFontsDialog'
 import { FormatDialog } from './FormatDialog'
@@ -67,16 +68,32 @@ function PageSetupDialog({ onClose }: { onClose: () => void }) {
   const [h, setH] = useState(f(ps.height))
   const [m, setM] = useState({ top: f(ps.margins.top), left: f(ps.margins.left), bottom: f(ps.margins.bottom), right: f(ps.margins.right) })
   const [error, setError] = useState('')
+  // Layout type, like Publisher: an ordinary full page, or a folded greeting card.
+  const [layout, setLayout] = useState<'full' | FoldKind>(ps.card?.fold ?? 'full')
+  const [sheet, setSheet] = useState<'letter' | 'a4'>(ps.card && ps.card.sheetWidth < 600 ? 'a4' : 'letter')
   const pw = parseLength(w, u), ph = parseLength(h, u)
+  const paper = sheet === 'a4' ? A4 : LETTER
+  const tooBig = layout !== 'full' && pw && ph ? (() => {
+    const plan = cardPlan(layout, pw, ph)
+    const s = sheetFor(plan, paper)
+    return plan.width > s.width + 0.6 || plan.height > s.height + 0.6
+  })() : false
   const ok = () => {
     const mm = { top: parseLength(m.top, u), left: parseLength(m.left, u), bottom: parseLength(m.bottom, u), right: parseLength(m.right, u) }
     if (!pw || !ph || pw < 18 || ph < 18) return setError('Enter a page width and height of at least 0.25".')
     if (pw > 241 * 72 || ph > 241 * 72) return setError('Pages can be up to 241" on each side.')
     if (Object.values(mm).some((v) => v === null || v < 0)) return setError('Enter valid margins.')
-    cmd.setPageSize(pw, ph)
+    if (layout === 'full') {
+      cmd.setFullPageLayout()
+      cmd.setPageSize(pw, ph)
+    } else {
+      cmd.setCardLayout(layout, pw, ph, paper)
+    }
     cmd.setMargins(mm as typeof ps.margins)
     onClose()
   }
+  const presets = layout === 'full' ? PAGE_PRESETS.map((p) => ({ name: p.name, width: p.width, height: p.height, sheet: null as null | 'letter' | 'a4' }))
+    : CARD_PRESETS.filter((p) => p.fold === layout).map((p) => ({ name: p.name, width: p.width, height: p.height, sheet: (p.sheet === A4 ? 'a4' : 'letter') as 'letter' | 'a4' }))
   // Preview proportions
   const pv = pw && ph ? { w: pw > ph ? 120 : (120 * pw) / ph, h: pw > ph ? (120 * ph) / pw : 120 } : { w: 90, h: 120 }
   return (
@@ -85,18 +102,44 @@ function PageSetupDialog({ onClose }: { onClose: () => void }) {
         <div>
           <fieldset>
             <legend>Page</legend>
-            <LengthInput label="Width:" value={w} onChange={setW} autoFocus />
-            <LengthInput label="Height:" value={h} onChange={setH} />
+            <label className="field">
+              <span>Layout:</span>
+              <select value={layout} onChange={(e) => {
+                const next = e.target.value as 'full' | FoldKind
+                setLayout(next)
+                // Picking a card layout starts from its standard size.
+                if (next !== 'full') {
+                  const p = CARD_PRESETS.find((x) => x.fold === next)!
+                  setW(f(p.width)); setH(f(p.height)); setSheet(p.sheet === A4 ? 'a4' : 'letter')
+                }
+              }}>
+                <option value="full">Full page</option>
+                {FOLD_KINDS.map((k) => <option key={k} value={k}>{FOLD_NAMES[k]}</option>)}
+              </select>
+            </label>
+            <LengthInput label={layout === 'full' ? 'Width:' : 'Card width:'} value={w} onChange={setW} autoFocus />
+            <LengthInput label={layout === 'full' ? 'Height:' : 'Card height:'} value={h} onChange={setH} />
             <label className="field">
               <span>Preset:</span>
               <select value="" onChange={(e) => {
-                const p = PAGE_PRESETS.find((x) => x.name === e.target.value)
-                if (p) { setW(f(p.width)); setH(f(p.height)) }
+                const p = presets.find((x) => x.name === e.target.value)
+                if (p) { setW(f(p.width)); setH(f(p.height)); if (p.sheet) setSheet(p.sheet) }
               }}>
                 <option value="">Choose a size…</option>
-                {PAGE_PRESETS.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+                {presets.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
               </select>
             </label>
+            {layout !== 'full' && (
+              <label className="field">
+                <span>Paper:</span>
+                <select value={sheet} onChange={(e) => setSheet(e.target.value as 'letter' | 'a4')}>
+                  <option value="letter">Letter (8.5 × 11")</option>
+                  <option value="a4">A4 (210 × 297 mm)</option>
+                </select>
+              </label>
+            )}
+            {layout !== 'full' && <div className="hint">The card size is the size once folded. The publication gets four pages: Front, Inside, Inside and Back.</div>}
+            {tooBig && <div className="warn">Unfolded, this card is bigger than {paper.name} paper; it will be shrunk when printed.</div>}
           </fieldset>
           <fieldset>
             <legend>Margin Guides</legend>

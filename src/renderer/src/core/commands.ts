@@ -13,6 +13,7 @@ import type { TextPos } from './text/layout'
 import { renderPage, type RenderEnv } from './render/canvas'
 import { platform } from '../platform'
 import type { StarterTemplate } from './templates/starters'
+import { applyCardLayout, makeCardDocument, removeCardLayout, renameCardPages, rotatedFold, type CardPreset, type FoldKind } from './model/card'
 
 const ed: Editor = editor
 
@@ -629,13 +630,13 @@ export function setObjectProps(label: string, patch: (o: SceneObject) => void, c
 // ---------- pages ----------
 
 export function addPage(after = ed.pageIndex): void {
-  ed.change('Insert Page', (doc) => { insertPage(doc, after + 1) })
+  ed.change('Insert Page', (doc) => { insertPage(doc, after + 1); renameCardPages(doc) })
   ed.goToPage(after + 1)
 }
 
 export function duplicateCurrentPage(): void {
   const i = ed.pageIndex
-  ed.change('Duplicate Page', (doc) => { duplicatePage(doc, i) })
+  ed.change('Duplicate Page', (doc) => { duplicatePage(doc, i); renameCardPages(doc) })
   ed.goToPage(i + 1)
 }
 
@@ -645,14 +646,14 @@ export function deleteCurrentPage(): void {
     return
   }
   const i = ed.pageIndex
-  ed.change('Delete Page', (doc) => { deletePage(doc, i) })
+  ed.change('Delete Page', (doc) => { deletePage(doc, i); renameCardPages(doc) })
   ed.pageIndex = Math.min(i, ed.doc.pages.length - 1)
   ed.clearSelection()
 }
 
 export function moveCurrentPage(to: number): void {
   const from = ed.pageIndex
-  ed.change('Move Page', (doc) => { movePage(doc, from, to) })
+  ed.change('Move Page', (doc) => { movePage(doc, from, to); renameCardPages(doc) })
   ed.pageIndex = Math.max(0, Math.min(to, ed.doc.pages.length - 1))
   ed.touch()
 }
@@ -670,10 +671,51 @@ export function setMargins(m: RDocument['pageSetup']['margins']): void {
 }
 
 export function swapOrientation(want: 'portrait' | 'landscape'): void {
-  const { width, height } = ed.doc.pageSetup
+  const { width, height, card } = ed.doc.pageSetup
   const isLandscape = width > height
   if ((want === 'landscape') === isLandscape) return
+  if (card) {
+    // A card turned on its side switches between side fold and top fold.
+    ed.change('Orientation', (doc) => {
+      applyCardLayout(doc, rotatedFold(card.fold), height, width, { width: card.sheetWidth, height: card.sheetHeight })
+    })
+    ed.requestView('fit-page')
+    return
+  }
   setPageSize(height, width)
+}
+
+// ---------- greeting cards ----------
+
+/** File › New › Greeting Cards: a new blank card. */
+export async function newCard(preset: CardPreset): Promise<void> {
+  if (!(await confirmReplace())) return
+  ed.load(makeCardDocument(preset), new Map(), null, nextUntitled())
+  ed.backstage = null
+  ed.setStatus(`${preset.name}: design the Front, Inside and Back pages, then print and fold.`)
+  ed.touch()
+}
+
+/** Page Design › Size › Greeting Cards (or Page Setup): make this publication a card. */
+export function setCardLayout(fold: FoldKind, width: number, height: number, sheet: { width: number; height: number }): void {
+  ed.change('Greeting Card Layout', (doc) => { applyCardLayout(doc, fold, width, height, sheet) })
+  ed.requestView('fit-page')
+}
+
+/** Back to ordinary full pages (keeps the page size). */
+export function setFullPageLayout(): void {
+  if (!ed.doc.pageSetup.card) return
+  ed.change('Full Page Layout', (doc) => { removeCardLayout(doc) })
+}
+
+/** Page size from the Size menu: an ordinary page size ends card layout. */
+export function setPlainPageSize(width: number, height: number): void {
+  ed.change('Page Size', (doc) => {
+    removeCardLayout(doc)
+    doc.pageSetup.width = width
+    doc.pageSetup.height = height
+  })
+  ed.requestView('fit-page')
 }
 
 // ---------- text formatting ----------

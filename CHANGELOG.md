@@ -3,6 +3,64 @@
 What has changed in ReflectDesign, newest first. Each fix has a regression
 test in `tests/fixes.test.ts` or `tests/commands.test.ts`, except where noted.
 
+## 2026-11-21 (evening) — Greeting cards
+
+### New features
+
+- **Greeting card layouts.** A publication can now be a folded card, like
+  Publisher's greeting cards. A card has four pages, named for you: **Front**,
+  **Inside Left**, **Inside Right** and **Back** (or Inside Top / Inside
+  Bottom for cards that open upward). Four layouts:
+  - **Quarter-fold**: the whole card prints on *one side* of one sheet and is
+    folded twice. Works with any printer.
+  - **Half-fold**: the outside prints on one side of the sheet and the inside
+    on the other, folded once. Needs two-sided printing ("flip on short
+    edge"), or feeding the sheet through twice.
+  - Each as a **side fold** (opens like a book) or a **top fold** (opens
+    upward).
+- **Standard card sizes:** quarter-fold 4.25 × 5.5" and 5.5 × 4.25";
+  half-fold 5.5 × 8.5" and 8.5 × 5.5"; 5 × 7" and 4.5 × 6.25" (half-fold on
+  Letter, trimmed to fit standard envelopes); and A6 quarter-fold, A5
+  half-fold and A6 half-fold for A4 paper.
+- **Where to find it:**
+  - **File › New › Greeting Cards**: the two card templates and a blank card
+    in each size.
+  - **Page Design › Size › Greeting Cards**: turn the open publication into a
+    card. Missing pages are added. Pages you named yourself keep their names.
+    Picking an ordinary page size turns it back into a normal publication.
+  - **Page Setup › Layout**: Full page or one of the four card folds, with
+    any card size and Letter or A4 paper.
+  - **Page Design › Orientation** on a card switches between side fold and
+    top fold.
+- **Printing cards (File › Print).** ReflectDesign lays the card out on the
+  sheet so it reads correctly once folded: some panels print upside down
+  on purpose. The preview shows the printed sheet (both sides for
+  half-fold) with every panel labelled and the folds dashed. The screen also
+  gives step-by-step folding instructions. Options: paper size, trim and fold
+  marks (added automatically when the paper is bigger than the card), and
+  turning the inside around for printers that flip the other way. Pages 5–8
+  make a second card, and so on.
+- **PDF for cards (File › Export).** Choose **Ready to print and fold** (the
+  unfolded sheet, as above) or **Separate pages**.
+- **Two card templates** (File › New › Greeting Cards):
+  - **Birthday Card**: quarter-fold 4.25 × 5.5" with balloons, confetti, a
+    "Make a wish!" inside page and a message.
+  - **Thank You Card**: 5 × 7" half-fold with a picture frame over a printed
+    heart-and-leaves design, a message and a signature.
+
+### How the card layouts were checked
+
+`tests/card.test.ts` folds the printed sheet in 3D, step by step as the
+on-screen instructions say. It checks that the front ends up on top, facing
+out and the right way up, that the back is outermost, and that the inside
+pages face the reader in order, for all four folds. Deliberately breaking any
+of the layouts makes the test fail. The app was also run, and real PDFs were
+exported and checked page by page.
+
+### Fixed
+
+- Page Setup: the Margin Guides boxes no longer spill out of the dialog.
+
 ## 2026-11-21 — Bug-fix round and two new features
 
 ### New features

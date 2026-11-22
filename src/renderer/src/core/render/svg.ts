@@ -5,6 +5,7 @@
 
 import type { CharStyle, Fill, Page, PictureObject, RDocument, SceneObject, Shadow, ShapeObject, Stroke, TextBoxObject } from '../model/types'
 import type { AssetStore } from '../assets'
+import type { CardPlan } from '../model/card'
 import type { TextEngine } from '../text/engine'
 import { displayText, type LaidLine } from '../text/layout'
 import { cssFont, effectiveSize, trackingPx } from '../text/canvasMeasurer'
@@ -347,6 +348,77 @@ export function tilePage(page: { svg: string; width: number; height: number }, t
     }
   }
   return sheets
+}
+
+export interface CardSheetOptions {
+  /** Paper size, already turned to the right orientation (points). */
+  paperWidth: number
+  paperHeight: number
+  /** Turn the inside sheet upside down (for printers that flip the other way). */
+  insideUpsideDown: boolean
+  /** Trim and fold marks outside the card, when the paper is bigger than the card. */
+  marks: boolean
+}
+
+/**
+ * Lay out a folded greeting card on printer sheets (one sheet side per entry).
+ * `pages` holds the rendered card pages by slot (Front, Inside 1, Inside 2,
+ * Back); a missing page leaves its panel blank.
+ */
+export function cardSheets(pages: Array<{ svg: string; width: number; height: number } | null>, plan: CardPlan,
+  pw: number, ph: number, o: CardSheetOptions): PrintSheet[] {
+  const W = o.paperWidth, H = o.paperHeight
+  // Shrink only if the card doesn't fit on the paper at all.
+  const k = Math.min(1, W / plan.width, H / plan.height)
+  const sw = plan.width * k, sh = plan.height * k
+  const ox = (W - sw) / 2, oy = (H - sh) / 2
+  return plan.sides.map((side, sideIndex) => {
+    let body = ''
+    for (const pl of side.panels) {
+      const pg = pages[pl.slot]
+      if (!pg) continue
+      const x = ox + pl.x * k, y = oy + pl.y * k, w = pw * k, h = ph * k
+      // Each panel is clipped to its own area so nothing spills onto the next one.
+      const inner = placeSvg(pg.svg, x, y, w, h).replace(/^<svg /, '<svg overflow="hidden" ')
+      body += pl.rotate === 180 ? `<g transform="rotate(180 ${n(x + w / 2)} ${n(y + h / 2)})">${inner}</g>` : inner
+    }
+    if (o.marks) body += cardMarks(plan, ox, oy, sw, sh, k)
+    if (sideIndex > 0 && o.insideUpsideDown) body = `<g transform="rotate(180 ${n(W / 2)} ${n(H / 2)})">${body}</g>`
+    return {
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${n(W)}pt" height="${n(H)}pt" viewBox="0 0 ${n(W)} ${n(H)}">${body}</svg>`,
+      width: W,
+      height: H
+    }
+  })
+}
+
+/** Trim marks at the corners and dashed fold marks, drawn outside the card only. */
+function cardMarks(plan: CardPlan, ox: number, oy: number, sw: number, sh: number, k: number): string {
+  const gapX = ox, gapY = oy
+  const line = (x1: number, y1: number, x2: number, y2: number, dash = '') =>
+    `<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="#000" stroke-width="0.5"${dash}/>`
+  let out = ''
+  const len = (gap: number) => Math.min(18, gap - 4)
+  if (gapX >= 10) {
+    const L = len(gapX)
+    for (const y of [oy, oy + sh]) out += line(ox - 3 - L, y, ox - 3, y) + line(ox + sw + 3, y, ox + sw + 3 + L, y)
+  }
+  if (gapY >= 10) {
+    const L = len(gapY)
+    for (const x of [ox, ox + sw]) out += line(x, oy - 3 - L, x, oy - 3) + line(x, oy + sh + 3, x, oy + sh + 3 + L)
+  }
+  for (const f of plan.folds) {
+    const dash = ' stroke-dasharray="2 2"'
+    if (f.orientation === 'v' && gapY >= 10) {
+      const x = ox + f.pos * k, L = len(gapY)
+      out += line(x, oy - 3 - L, x, oy - 3, dash) + line(x, oy + sh + 3, x, oy + sh + 3 + L, dash)
+    }
+    if (f.orientation === 'h' && gapX >= 10) {
+      const y = oy + f.pos * k, L = len(gapX)
+      out += line(ox - 3 - L, y, ox - 3, y, dash) + line(ox + sw + 3, y, ox + sw + 3 + L, y, dash)
+    }
+  }
+  return out
 }
 
 /** Scale a page to fit one sheet of paper, centred. */

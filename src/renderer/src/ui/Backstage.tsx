@@ -9,6 +9,7 @@ import { useEditor } from './useEditor'
 import { useDialogs } from './dialogs/DialogHost'
 import { ExportView, PrintView } from './ExportPrint'
 import { STARTER_TEMPLATES, type StarterTemplate } from '@core/templates/starters'
+import { CARD_PRESETS, isQuarterFold, isTopFold } from '@core/model/card'
 
 const starterThumbs = new Map<string, string>()
 
@@ -197,9 +198,25 @@ function NewView() {
           <div className="tpl-thumb more">{more ? 'Fewer' : 'More Blank Page Sizes'}</div>
         </button>
       </div>
+      <h2>Greeting Cards</h2>
+      <div className="tpl-grid">
+        {STARTER_TEMPLATES.filter((t) => t.category === 'Greeting Cards').map((t) => <StarterCard key={t.id} t={t} />)}
+        {CARD_PRESETS.map((c) => (
+          <button key={c.id} className="tpl" title={`${c.description}. Four pages: Front, Inside, Inside, Back.`} onClick={() => cmd.newCard(c)}>
+            <div className="tpl-thumb blank card">
+              <div style={{
+                ...thumbBox(c.width, c.height),
+                ...(isTopFold(c.fold) ? { borderTop: '3px solid #a9a9a9' } : { borderLeft: '3px solid #a9a9a9' })
+              }} />
+            </div>
+            <div className="tpl-name">{c.name}</div>
+            <div className="tpl-sub">{isQuarterFold(c.fold) ? 'Prints on one side' : 'Prints on both sides'} · {c.sheet.name}</div>
+          </button>
+        ))}
+      </div>
       <h2>Featured</h2>
       <div className="tpl-grid">
-        {STARTER_TEMPLATES.map((t) => <StarterCard key={t.id} t={t} />)}
+        {STARTER_TEMPLATES.filter((t) => t.category !== 'Greeting Cards').map((t) => <StarterCard key={t.id} t={t} />)}
         {featured.map((t) => <TemplateCard key={t.id} t={t} />)}
       </div>
       <h2>Personal</h2>

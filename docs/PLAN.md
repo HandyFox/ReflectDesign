@@ -125,6 +125,11 @@ Primary platform: **Ubuntu Linux**. Also runs on Windows and macOS.
   category and description.
 - **New Blank Template** (File > New > Personal): start a blank template of any
   page size; Save keeps updating it. ✔ Done 2026-11-21.
+- **Greeting cards** (File > New > Greeting Cards, Page Setup > Layout):
+  quarter-fold and half-fold cards, side or top fold, standard sizes, two card
+  templates, and printing/PDF laid out ready to fold. ✔ Done 2026-11-21.
+  Possible next steps: show Inside Left + Inside Right side by side as one
+  spread while designing; tri-fold brochures; envelopes.
 - Starter templates (first release): bulletin board title banner, classroom
   poster, event flyer, and a cut-out letter sheet.
 - Building Blocks: save any selected objects as a reusable block.
