@@ -130,6 +130,12 @@ Primary platform: **Ubuntu Linux**. Also runs on Windows and macOS.
   templates, and printing/PDF laid out ready to fold. ✔ Done 2026-11-21.
   Possible next steps: show Inside Left + Inside Right side by side as one
   spread while designing; tri-fold brochures; envelopes.
+- **Calendars** (File > New > Calendars, Insert > Calendar, Calendar Tools):
+  self-drawing month / year / list calendars, five designs, and calendar
+  dates that carry over year to year, saved and loaded as .rdcal, .ics and .csv.
+  ✔ Done 2026-11-21. Possible next steps: pictures or clip art on dates,
+  other countries' holiday lists, a printed list of the month's dates beside
+  the grid, and weekly and daily planner pages.
 - Starter templates (first release): bulletin board title banner, classroom
   poster, event flyer, and a cut-out letter sheet.
 - Building Blocks: save any selected objects as a reusable block.

@@ -3,7 +3,7 @@
 // and PDF output so the printing engine always has them.
 
 import type { GoogleFontFile } from '@shared/api'
-import type { RDocument } from './model/types'
+import type { RDocument, SceneObject } from './model/types'
 
 const files: GoogleFontFile[] = []
 const listeners = new Set<() => void>()
@@ -42,6 +42,12 @@ function base64(bytes: Uint8Array): string {
 export function fontFaceCss(doc: RDocument): string {
   const used = new Set<string>()
   for (const story of Object.values(doc.stories)) for (const p of story.paragraphs) for (const r of p.runs) used.add(r.style.font)
+  // Calendars draw their own text.
+  const walk = (list: SceneObject[]) => list.forEach((o) => {
+    if (o.type === 'calendar') { used.add(o.style.font); used.add(o.style.titleFont) }
+    else if (o.type === 'group') walk(o.children)
+  })
+  for (const p of [...doc.pages, ...doc.masters]) walk(p.objects)
   return files
     .filter((f) => used.has(f.family))
     .map((f) => `@font-face { font-family: "${f.family}"; font-weight: ${f.weight}; font-style: ${f.italic ? 'italic' : 'normal'}; src: url(data:font/ttf;base64,${base64(f.bytes)}); }`)

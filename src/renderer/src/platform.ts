@@ -58,6 +58,10 @@ const browserApi: ReflectAPI = {
     return null
   },
   async removeRecent() {},
+  async openDatesFile() {
+    const [f] = await pickFiles('.rdcal,.ics,.csv,.txt,.json,.rdx,.rdt', false)
+    return f ? { path: null, name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) } : null
+  },
   async pickImages(): Promise<PickedImage[]> {
     const files = await pickFiles('image/*', true)
     return Promise.all(files.map(async (f) => ({ name: f.name, mime: f.type || 'image/png', bytes: new Uint8Array(await f.arrayBuffer()) })))

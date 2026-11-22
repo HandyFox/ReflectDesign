@@ -6,15 +6,21 @@ import { A4, CARD_PRESETS, FOLD_KINDS, FOLD_NAMES, LETTER, cardPlan, sheetFor, t
 import { SpellingDialog } from './SpellingDialog'
 import { GoogleFontsDialog } from './GoogleFontsDialog'
 import { FormatDialog } from './FormatDialog'
+import { CalendarDatesDialog, ChangeCalendarDatesDialog, NewCalendarDialog } from './CalendarDialogs'
+import type { CalendarDesignId } from '@core/calendar/build'
 
 type DialogKind = 'pageSetup' | 'renamePage' | 'saveTemplate' | 'newTemplate' | 'spelling' | 'googleFonts' | 'format'
+  | 'calendarDates' | 'newCalendar' | 'calendarYear'
 
-const Ctx = createContext<{ open: (k: DialogKind) => void }>({ open: () => {} })
+/** `arg` passes a starting choice to a dialog (e.g. the calendar design that was clicked). */
+const Ctx = createContext<{ open: (k: DialogKind, arg?: string) => void }>({ open: () => {} })
 export const useDialogs = () => useContext(Ctx)
 
 export function DialogHost({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState<DialogKind | null>(null)
-  const close = () => setOpen(null)
+  const [open, setOpenState] = useState<DialogKind | null>(null)
+  const [arg, setArg] = useState<string | undefined>(undefined)
+  const setOpen = (k: DialogKind, a?: string) => { setArg(a); setOpenState(k) }
+  const close = () => setOpenState(null)
   return (
     <Ctx.Provider value={{ open: setOpen }}>
       {children}
@@ -24,7 +30,10 @@ export function DialogHost({ children }: { children: ReactNode }) {
       {open === 'newTemplate' && <NewTemplateDialog onClose={close} />}
       {open === 'spelling' && <SpellingDialog onClose={close} />}
       {open === 'googleFonts' && <GoogleFontsDialog onClose={close} />}
-      {open === 'format' && <FormatDialog onClose={close} />}
+      {open === 'format' && <FormatDialog onClose={close} initialTab={arg as 'size' | undefined} />}
+      {open === 'calendarDates' && <CalendarDatesDialog onClose={close} />}
+      {open === 'newCalendar' && <NewCalendarDialog onClose={close} design={arg as CalendarDesignId | undefined} />}
+      {open === 'calendarYear' && <ChangeCalendarDatesDialog onClose={close} />}
     </Ctx.Provider>
   )
 }

@@ -4,8 +4,9 @@ import { editor as ed } from '@core/editor'
 import * as cmd from '@core/commands'
 import { useEditor } from '../useEditor'
 import { DrawingFormatTab, HomeTab, InsertTab, PageDesignTab, PictureFormatTab, ReviewTab, TextBoxFormatTab, ViewTab } from './tabs'
+import { CalendarToolsTab } from './CalendarTab'
 
-type TabId = 'home' | 'insert' | 'design' | 'review' | 'view' | 'fmt-text' | 'fmt-picture' | 'fmt-drawing'
+type TabId = 'home' | 'insert' | 'design' | 'review' | 'view' | 'fmt-text' | 'fmt-picture' | 'fmt-drawing' | 'fmt-calendar'
 
 const MAIN_TABS: Array<[TabId, string]> = [
   ['home', 'Home'],
@@ -19,6 +20,7 @@ function contextualTab(): { id: TabId; group: string; color: string } | null {
   const objs = ed.selectedObjects
   if (ed.editing || (objs.length && objs.every((o) => o.type === 'text'))) return { id: 'fmt-text', group: 'Text Box Tools', color: '#8e4fa3' }
   if (objs.length && objs.every((o) => o.type === 'picture')) return { id: 'fmt-picture', group: 'Picture Tools', color: '#b3730d' }
+  if (objs.length && objs.every((o) => o.type === 'calendar')) return { id: 'fmt-calendar', group: 'Calendar Tools', color: '#1f6fb2' }
   if (objs.length) return { id: 'fmt-drawing', group: 'Drawing Tools', color: '#c0504d' }
   return null
 }
@@ -28,6 +30,11 @@ export function Ribbon() {
   const [tab, setTab] = useState<TabId>('home')
   const [collapsed, setCollapsed] = useState(false)
   const ctxTab = contextualTab()
+
+  // Selecting a calendar shows Calendar Tools, so its options are easy to find.
+  useEffect(() => {
+    if (ctxTab?.id === 'fmt-calendar') setTab('fmt-calendar')
+  }, [ctxTab?.id])
 
   // If the contextual tab disappears, fall back to Home (like Publisher).
   useEffect(() => {
@@ -44,6 +51,7 @@ export function Ribbon() {
       case 'fmt-text': return <TextBoxFormatTab />
       case 'fmt-picture': return <PictureFormatTab />
       case 'fmt-drawing': return <DrawingFormatTab />
+      case 'fmt-calendar': return <CalendarToolsTab />
     }
   })()
 

@@ -1,3 +1,4 @@
+import { clearCalendarCache } from '@core/render/canvas'
 import { useEffect, useState } from 'react'
 import { platform } from '../platform'
 import { editor } from '@core/editor'
@@ -32,6 +33,7 @@ export function loadFonts(): Promise<string[]> {
 onFontsChanged(() => {
   if (families) publish()
   editor.measurer.reset()
+  clearCalendarCache()
   editor.text.invalidate()
   editor.touch()
 })
@@ -50,6 +52,7 @@ export function useFontFamilies(): string[] {
 if (typeof document !== 'undefined' && document.fonts) {
   document.fonts.addEventListener?.('loadingdone', () => {
     editor.measurer.reset()
+    clearCalendarCache()
     editor.text.invalidate()
     editor.touch()
   })
@@ -61,6 +64,7 @@ export function ensureFont(family: string): void {
   const specs = [`16px "${family}"`, `bold 16px "${family}"`, `italic 16px "${family}"`]
   Promise.all(specs.map((s) => document.fonts.load(s))).then(() => {
     editor.measurer.reset()
+    clearCalendarCache()
     editor.text.invalidate()
     editor.touch()
   }).catch(() => {})

@@ -19,6 +19,10 @@ feel like **Microsoft Publisher 2016/2019** on Linux (Ubuntu), Windows and macOS
 - Starter templates, Save As Template and New Blank Template
 - Greeting cards: quarter-fold and half-fold, side or top fold, standard card
   sizes, and printing laid out ready to fold
+- Calendars: month, year-at-a-glance and birthday-board layouts, five
+  calendar designs, and a list of birthdays, holidays and events that carries
+  over to next year. Dates can be saved to and loaded from .rdcal, .ics
+  (Google, Outlook, Apple Calendar) and .csv files.
 - Recent files on the File › Open screen
 
 ## Install on Ubuntu

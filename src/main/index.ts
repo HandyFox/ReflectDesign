@@ -125,6 +125,30 @@ function registerIpc(): void {
     return { path, name: basename(path), bytes: new Uint8Array(bytes) }
   })
 
+  // Calendar › Load Dates: a dates file, a calendar from another app, a spreadsheet,
+  // or another ReflectDesign calendar.
+  ipcMain.handle('open-dates-file', async () => {
+    if (!mainWindow) return null
+    const testFile = process.env['REFLECTDESIGN_TEST_OPEN_DATES']
+    const res = testFile ? { canceled: false, filePaths: [testFile] } : await dialog.showOpenDialog(mainWindow, {
+      title: 'Load Calendar Dates',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Calendar dates', extensions: ['rdcal', 'ics', 'csv', 'rdx', 'rdt', 'txt', 'json'] },
+        { name: 'ReflectDesign dates', extensions: ['rdcal'] },
+        { name: 'iCalendar (Google, Outlook, Apple)', extensions: ['ics'] },
+        { name: 'Spreadsheet (CSV)', extensions: ['csv', 'txt'] },
+        { name: 'ReflectDesign publication', extensions: ['rdx', 'rdt'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    })
+    if (res.canceled || res.filePaths.length === 0) return null
+    const path = res.filePaths[0]
+    const bytes = await readFile(path)
+    if (bytes.length > 20 * 1024 * 1024 && !/\.(rdx|rdt)$/i.test(path)) throw new Error('That file is too big to be a list of dates.')
+    return { path, name: basename(path), bytes: new Uint8Array(bytes) }
+  })
+
   ipcMain.handle('recent-list', () => listRecent())
   ipcMain.handle('recent-remove', (_e, path: string | null) => removeRecent(path))
   ipcMain.handle('recent-open', async (_e, path: string) => {
@@ -178,8 +202,10 @@ function registerIpc(): void {
 
   ipcMain.handle('save-export', async (_e, bytes: Uint8Array, suggestedName: string, filterName: string, ext: string) => {
     if (!mainWindow) return null
-    const res = await dialog.showSaveDialog(mainWindow, {
-      title: 'Export',
+    // Automated tests save without a dialog.
+    const testDir = process.env['REFLECTDESIGN_TEST_SAVE_DIR']
+    const res = testDir ? { canceled: false, filePath: join(testDir, suggestedName) } : await dialog.showSaveDialog(mainWindow, {
+      title: 'Save',
       defaultPath: suggestedName,
       filters: [{ name: filterName, extensions: [ext] }]
     })

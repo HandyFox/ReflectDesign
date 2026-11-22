@@ -2,15 +2,16 @@
 // (points). The caller sets up the zoom/scroll transform first.
 
 import type {
-  Fill, Page, PictureObject, RDocument, SceneObject, ShapeObject, Shadow, Stroke, TextBoxObject
+  CalendarObject, Fill, Page, PictureObject, RDocument, SceneObject, ShapeObject, Shadow, Stroke, TextBoxObject
 } from '../model/types'
+import { layoutCalendar, type CalPiece } from '../calendar/layout'
 import type { AssetStore } from '../assets'
 import { tracePath } from '../geometry/path'
 import { shapePath } from '../geometry/shapes'
 import type { TextEngine } from '../text/engine'
-import type { LaidLine, StoryLayout } from '../text/layout'
+import type { LaidLine, Measurer, StoryLayout } from '../text/layout'
 import { displayText } from '../text/layout'
-import { applyFont, effectiveSize } from '../text/canvasMeasurer'
+import { applyFont, cssFont, effectiveSize } from '../text/canvasMeasurer'
 
 type Ctx = CanvasRenderingContext2D
 
@@ -126,7 +127,69 @@ export function drawObject(ctx: Ctx, env: RenderEnv, o: SceneObject): void {
     case 'shape': withObjectTransform(ctx, o, () => drawShape(ctx, env, o)); break
     case 'picture': withObjectTransform(ctx, o, () => drawPicture(ctx, env, o)); break
     case 'text': withObjectTransform(ctx, o, () => drawTextBox(ctx, env, o)); break
+    case 'calendar': withObjectTransform(ctx, o, () => drawCalendar(ctx, env, o)); break
   }
+}
+
+/** Recent calendar layouts, so redrawing while dragging doesn't lay them out again. */
+const calendarCache = new Map<string, CalPiece[]>()
+
+export function calendarPieces(env: { doc: RDocument; text: { measurer: Measurer } }, o: CalendarObject): CalPiece[] {
+  const events = env.doc.calendarData?.events ?? []
+  const key = JSON.stringify([o.layout, o.year, o.month, o.weekStart, o.showTitle, o.title, o.showEvents, o.eventKinds, o.style, o.width, o.height, events])
+  let pieces = calendarCache.get(key)
+  if (!pieces) {
+    pieces = layoutCalendar(o, events, env.text.measurer)
+    if (calendarCache.size > 80) calendarCache.delete(calendarCache.keys().next().value!)
+    calendarCache.set(key, pieces)
+  }
+  return pieces
+}
+
+/** Fonts finished loading: lay calendars out again with the real widths. */
+export function clearCalendarCache(): void {
+  calendarCache.clear()
+}
+
+function drawCalendar(ctx: Ctx, env: RenderEnv, o: CalendarObject): void {
+  ctx.save()
+  for (const p of calendarPieces(env, o)) {
+    switch (p.t) {
+      case 'rect': {
+        ctx.beginPath()
+        if (p.r) ctx.roundRect(p.x, p.y, p.w, p.h, p.r)
+        else ctx.rect(p.x, p.y, p.w, p.h)
+        if (p.fill) { ctx.fillStyle = p.fill; ctx.fill() }
+        if (p.stroke && p.sw > 0) { ctx.strokeStyle = p.stroke; ctx.lineWidth = p.sw; ctx.stroke() }
+        break
+      }
+      case 'line':
+        ctx.beginPath()
+        ctx.moveTo(p.x1, p.y1)
+        ctx.lineTo(p.x2, p.y2)
+        ctx.strokeStyle = p.color
+        ctx.lineWidth = p.w
+        ctx.lineCap = 'square'
+        ctx.stroke()
+        break
+      case 'dot':
+        ctx.globalAlpha = p.opacity
+        ctx.beginPath()
+        ctx.arc(p.cx, p.cy, p.r, 0, Math.PI * 2)
+        ctx.fillStyle = p.fill
+        ctx.fill()
+        ctx.globalAlpha = 1
+        break
+      case 'text':
+        ctx.font = cssFont(p.style, 1)
+        ctx.fillStyle = p.style.color
+        ctx.textAlign = p.align
+        ctx.textBaseline = 'alphabetic'
+        ctx.fillText(p.text, p.x, p.y)
+        break
+    }
+  }
+  ctx.restore()
 }
 
 function drawShape(ctx: Ctx, env: RenderEnv, o: ShapeObject): void {

@@ -13,6 +13,7 @@ import { caretRect, xAtOffset } from '@core/text/layout'
 import { orderRange, comparePos } from '@core/text/edit'
 import { PT_PER } from '@core/model/units'
 import { useEditor } from '../useEditor'
+import { useDialogs } from '../dialogs/DialogHost'
 import { isMisspelled, misspelledIn, spellReady, wordAt, type WordRange } from '@core/spell'
 
 const misspelledCache = new Map<string, { version: number; words: WordRange[] }>()
@@ -50,6 +51,7 @@ export interface SpellTarget {
 
 export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: number, spell: SpellTarget | null) => void }) {
   const e = useEditor()
+  const dialogs = useDialogs()
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const hRulerRef = useRef<HTMLCanvasElement>(null)
@@ -1210,6 +1212,8 @@ export function Workspace({ onContextMenu }: { onContextMenu: (x: number, y: num
             const l = toLocal(hit, p)
             startEditing(hit.id, textPosAt(hit, l.x, l.y) ?? undefined)
           }
+          // Double-clicking a calendar opens its dates (birthdays, holidays, events).
+          if (hit && hit.type === 'calendar') dialogs.open('calendarDates')
         }}
         onWheel={onWheel}
         onContextMenu={(ev) => {

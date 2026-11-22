@@ -10,6 +10,7 @@ import { editor as ed } from '@core/editor'
 import * as cmd from '@core/commands'
 import { PAGE_PRESETS, formatLength } from '@core/model/units'
 import { CARD_PRESETS } from '@core/model/card'
+import { InsertCalendarButton } from './CalendarTab'
 import type { Autofit, SceneObject, ShapeKind, TextBoxObject, VAlign } from '@core/model/types'
 import { SHAPE_GALLERY, SHAPE_NAMES } from '@core/geometry/shapes'
 import { shapePath } from '@core/geometry/shapes'
@@ -115,6 +116,7 @@ export function InsertTab() {
         <BigButton icon={SquareDashed} label="Picture Placeholder" color="#666" onClick={cmd.insertPicturePlaceholder} />
       </RibbonGroup>
       <RibbonGroup label="Building Blocks">
+        <InsertCalendarButton />
         <BigButton icon={Frame} label="Borders & Accents" disabled title={soon} />
         <BigButton icon={BookImage} label="Page Parts" disabled title={soon} />
       </RibbonGroup>

@@ -73,6 +73,8 @@ export interface ReflectAPI {
   openRecent(path: string): Promise<OpenedFile | null>
   /** Remove one file from the recent list, or clear the list when path is null. */
   removeRecent(path: string | null): Promise<void>
+  /** Pick a file of calendar dates (.rdcal, .ics, .csv, or a publication). */
+  openDatesFile(): Promise<OpenedFile | null>
   /** Pick one or more image files. */
   pickImages(): Promise<PickedImage[]>
   /** Save an exported file (PDF/PNG/JPEG) with a Save dialog. */

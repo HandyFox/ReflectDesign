@@ -3,7 +3,8 @@
 // shapes, so print shops get sharp output at any size. Layout positions come
 // from the same text engine as the screen, so line breaks match exactly.
 
-import type { CharStyle, Fill, Page, PictureObject, RDocument, SceneObject, Shadow, ShapeObject, Stroke, TextBoxObject } from '../model/types'
+import type { CalendarObject, CharStyle, Fill, Page, PictureObject, RDocument, SceneObject, Shadow, ShapeObject, Stroke, TextBoxObject } from '../model/types'
+import { calendarPieces } from './canvas'
 import type { AssetStore } from '../assets'
 import type { CardPlan } from '../model/card'
 import type { TextEngine } from '../text/engine'
@@ -111,7 +112,32 @@ function objectSvg(env: SvgEnv, defs: Defs, o: SceneObject): string {
     case 'shape': return `<g transform="${transformOf(o)}">${shapeSvg(defs, o)}</g>`
     case 'picture': return `<g transform="${transformOf(o)}">${pictureSvg(env, defs, o)}</g>`
     case 'text': return `<g transform="${transformOf(o)}">${textBoxSvg(env, defs, o)}</g>`
+    case 'calendar': return `<g transform="${transformOf(o)}">${calendarSvg(env, o)}</g>`
   }
+}
+
+/** A calendar, drawn from the same pieces as the screen (render/canvas.ts). */
+function calendarSvg(env: SvgEnv, o: CalendarObject): string {
+  let out = ''
+  for (const p of calendarPieces(env, o)) {
+    switch (p.t) {
+      case 'rect':
+        out += `<rect x="${n(p.x)}" y="${n(p.y)}" width="${n(p.w)}" height="${n(p.h)}"${p.r ? ` rx="${n(p.r)}"` : ''} fill="${p.fill ? col(p.fill) : 'none'}"${p.stroke && p.sw > 0 ? ` stroke="${col(p.stroke)}" stroke-width="${n(p.sw)}"` : ''}/>`
+        break
+      case 'line':
+        out += `<line x1="${n(p.x1)}" y1="${n(p.y1)}" x2="${n(p.x2)}" y2="${n(p.y2)}" stroke="${col(p.color)}" stroke-width="${n(p.w)}" stroke-linecap="square"/>`
+        break
+      case 'dot':
+        out += `<circle cx="${n(p.cx)}" cy="${n(p.cy)}" r="${n(p.r)}" fill="${col(p.fill)}" fill-opacity="${n(p.opacity)}"/>`
+        break
+      case 'text': {
+        const anchor = p.align === 'left' ? 'start' : p.align === 'right' ? 'end' : 'middle'
+        out += `<text x="${n(p.x)}" y="${n(p.y)}" text-anchor="${anchor}" ${fontAttrs(p.style, 1)} fill="${col(p.style.color)}" xml:space="preserve">${esc(p.text)}</text>`
+        break
+      }
+    }
+  }
+  return out
 }
 
 function shapeSvg(defs: Defs, o: ShapeObject): string {

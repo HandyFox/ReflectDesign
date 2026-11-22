@@ -100,7 +100,7 @@ function ColorPick({ color, onPick, onNone, noneLabel }: { color: string | null;
 
 function ColorsTab({ isText, isPic }: { isText: boolean; isPic: boolean }) {
   const all = leaves(ed.selectedObjects)
-  const first = all.find((o) => o.type !== 'group') as Extract<SceneObject, { fill: unknown }> | undefined
+  const first = all.find((o) => o.type !== 'group' && o.type !== 'calendar') as Extract<SceneObject, { fill: unknown }> | undefined
   const fillColor = first && first.fill.type === 'solid' ? first.fill.color : first && first.fill.type !== 'none' ? (first.fill as { stops: Array<{ color: string }> }).stops[0]?.color ?? null : null
   const line = first?.stroke
   const set = cmd.setObjectProps

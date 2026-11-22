@@ -8,6 +8,7 @@ const api: ReflectAPI = {
   listRecent: () => ipcRenderer.invoke('recent-list'),
   openRecent: (path) => ipcRenderer.invoke('recent-open', path),
   removeRecent: (path) => ipcRenderer.invoke('recent-remove', path),
+  openDatesFile: () => ipcRenderer.invoke('open-dates-file'),
   pickImages: () => ipcRenderer.invoke('pick-images'),
   saveExport: (bytes, suggestedName, filterName, ext) => ipcRenderer.invoke('save-export', bytes, suggestedName, filterName, ext),
   exportPdf: (html, suggestedName) => ipcRenderer.invoke('export-pdf', html, suggestedName),

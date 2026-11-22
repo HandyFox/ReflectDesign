@@ -218,7 +218,55 @@ export interface GroupObject extends ObjectBase {
   children: SceneObject[]
 }
 
-export type SceneObject = TextBoxObject | PictureObject | ShapeObject | GroupObject
+/** How a calendar object is laid out. */
+export type CalendarLayout = 'month' | 'year' | 'list'
+
+export interface CalendarStyle {
+  /** Font for dates, day names and events. */
+  font: string
+  titleFont: string
+  titleColor: string
+  titleBold: boolean
+  /** Bar behind the day names (and month names in Year/List layouts). */
+  headerFill: string
+  headerColor: string
+  numberColor: string
+  gridColor: string
+  gridWidth: number
+  cellFill: string | null
+  weekendFill: string | null
+  /** Dates from the previous/next month in the first and last week. */
+  otherMonths: 'hide' | 'show'
+  dayNames: 'short' | 'long' | 'letter'
+  numberPosition: 'topLeft' | 'topRight' | 'center'
+  eventColor: string
+  /** Rounded corners for Year and List boxes (points). */
+  corner: number
+}
+
+/**
+ * A calendar that draws itself: a month grid, a year at a glance, or a list
+ * of each month's dates (a birthday board). Dates come from the publication's
+ * calendar dates (doc.calendarData), so they update everywhere at once.
+ */
+export interface CalendarObject extends ObjectBase {
+  type: 'calendar'
+  layout: CalendarLayout
+  year: number
+  /** 1–12: the month shown (Month layout) or the first month (Year/List). */
+  month: number
+  /** 0 = Sunday, 1 = Monday. */
+  weekStart: 0 | 1
+  showTitle: boolean
+  /** Title text; empty shows the automatic title ("March 2027", "2027", "Birthdays"). */
+  title: string
+  showEvents: boolean
+  /** Kinds of dates to show; empty shows all. */
+  eventKinds: Array<'birthday' | 'anniversary' | 'holiday' | 'event' | 'reminder'>
+  style: CalendarStyle
+}
+
+export type SceneObject = TextBoxObject | PictureObject | ShapeObject | GroupObject | CalendarObject
 export type ObjectType = SceneObject['type']
 
 // ---------- pages & document ----------
@@ -230,6 +278,7 @@ export interface Guide {
 }
 
 import type { CardSetup } from './card'
+import type { CalendarData } from '../calendar/dates'
 
 export interface Page {
   id: Id
@@ -285,6 +334,8 @@ export interface RDocument {
   styles: NamedParaStyle[]
   /** Colours the user has used recently (Recent Colors in colour pickers). */
   recentColors: string[]
+  /** Birthdays, holidays and events shown on the publication's calendars. */
+  calendarData?: CalendarData
 }
 
 /** Binary data for assets lives outside the JSON document. */

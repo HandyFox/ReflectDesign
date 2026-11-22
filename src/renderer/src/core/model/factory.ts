@@ -1,5 +1,6 @@
+import { CALENDAR_THEMES } from '../calendar/themes'
 import type {
-  CharStyle, Effects, Fill, GroupObject, Id, Page, ParaStyle, Paragraph, PictureObject, RDocument,
+  CalendarObject, CharStyle, Effects, Fill, GroupObject, Id, Page, ParaStyle, Paragraph, PictureObject, RDocument,
   SceneObject, ShapeKind, ShapeObject, Story, Stroke, TextBoxObject, Wrap
 } from './types'
 import { DOC_VERSION } from './types'
@@ -214,5 +215,25 @@ export function makeDocument(width = 612, height = 792): RDocument {
     assets: {},
     styles: [{ name: 'Normal', para: defaultParaStyle(), char: defaultCharStyle() }],
     recentColors: []
+  }
+}
+
+/** A calendar object (Insert › Calendar). */
+export function makeCalendar(box: Box, opts: Partial<Pick<CalendarObject, 'layout' | 'year' | 'month' | 'weekStart' | 'showTitle' | 'title' | 'showEvents' | 'eventKinds' | 'style'>> = {}): CalendarObject {
+  const now = new Date()
+  return {
+    ...base(box, 'Calendar'),
+    type: 'calendar',
+    wrap: defaultWrap('none'),
+    layout: 'month',
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    weekStart: 0,
+    showTitle: true,
+    title: '',
+    showEvents: true,
+    eventKinds: [],
+    ...opts,
+    style: structuredClone(opts.style ?? CALENDAR_THEMES[0].style)
   }
 }

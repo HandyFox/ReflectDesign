@@ -14,8 +14,12 @@ g.alert = (msg: string) => { throw new Error(`unexpected alert: ${msg}`) }
 
 const saved: Array<{ name: string; bytes: Uint8Array }> = []
 let unsavedAnswer: 'save' | 'discard' | 'cancel' = 'discard'
+let datesFile: { name: string; bytes: Uint8Array } | null = null
+const exported: Array<{ name: string; bytes: Uint8Array }> = []
 g.reflect = {
   platform: 'test',
+  openDatesFile: async () => (datesFile ? { path: `/tmp/${datesFile.name}`, ...datesFile } : null),
+  saveExport: async (bytes: Uint8Array, name: string) => { exported.push({ name, bytes }); return `/tmp/${name}` },
   saveTemplate: async (bytes: Uint8Array, name: string) => { saved.push({ name, bytes }); return `/templates/${name}.rdt` },
   listTemplates: async () => saved.map((s) => ({ id: s.name, name: s.name, category: 'Personal', description: '', builtIn: false, path: '' })),
   askUnsaved: async () => unsavedAnswer,
@@ -174,5 +178,86 @@ describe('greeting cards', () => {
     cmd.setPlainPageSize(612, 792)
     expect(ed.doc.pageSetup.card).toBeUndefined()
     expect(ed.doc.pages[0].name).toBe('')
+  })
+})
+
+describe('calendars', () => {
+  it('builds every calendar design with the chosen dates', async () => {
+    const { CALENDAR_DESIGNS, buildCalendarDocument } = await import('@core/calendar/build')
+    const { HOLIDAY_SETS } = await import('@core/calendar/dates')
+    for (const d of CALENDAR_DESIGNS) {
+      const doc = buildCalendarDocument({ design: d.id, themeId: d.theme, year: 2027, month: 1, months: 12, weekStart: 0, cover: true, events: HOLIDAY_SETS[0].events() })
+      const cals = doc.pages.flatMap((p) => p.objects).filter((o) => o.type === 'calendar')
+      expect(cals.length).toBeGreaterThan(0)
+      expect(doc.calendarData!.events).toHaveLength(11)
+      if (d.id === 'wall') expect(doc.pages.map((p) => p.name).slice(0, 3)).toEqual(['Cover', 'January 2027', 'February 2027'])
+      if (d.monthly) expect(doc.pages.filter((p) => p.name !== 'Cover')).toHaveLength(12)
+    }
+  })
+
+  it('Change Year moves every calendar, the cover year and the page names', async () => {
+    const cal = await import('@core/calendarCommands')
+    ed.dirty = false
+    await cal.newCalendarPublication({ design: 'wall', themeId: 'classic', year: 2026, month: 9, months: 12, weekStart: 0, cover: true, events: [] })
+    const cover = ed.doc.pages[0].objects.find((o) => o.name === 'Calendar Year')!
+    const yearText = () => cover.type === 'text' ? ed.doc.stories[cover.storyId].paragraphs[0].runs[0].text : ''
+    expect(yearText()).toBe('2026–2027')
+    cal.changeCalendarDates(2027, 9)
+    expect(yearText()).toBe('2027–2028')
+    expect(ed.doc.pages[1].name).toBe('September 2027')
+    expect(ed.doc.pages[12].name).toBe('August 2028')
+    const months = cal.allCalendars().filter((c) => c.layout === 'month').map((c) => `${c.year}-${c.month}`)
+    expect(months[0]).toBe('2027-9')
+    expect(months[11]).toBe('2028-8')
+    ed.undo()
+    expect(ed.doc.pages[1].name).toBe('September 2026')
+  })
+
+  it('dates: add, edit, holidays, save to a file, load it into next year’s calendar', async () => {
+    const cal = await import('@core/calendarCommands')
+    ed.dirty = false
+    await cmd.newDocument()
+    const c = cal.insertCalendar({ year: 2026, month: 11 })
+    expect(ed.selection).toEqual([c.id])
+    const ev = cal.addEvent({ title: 'Grandma', kind: 'birthday', month: 11, day: 12, repeat: 'yearly', year: 1950, showAge: true })
+    cal.updateEvent(ev.id, { title: 'Grandma Rose', kind: 'birthday', month: 11, day: 12, repeat: 'yearly', year: 1950, showAge: true })
+    expect(cal.addHolidaySet('us-federal')).toBe(11)
+    expect(cal.addHolidaySet('us-federal')).toBe(0)
+    expect(cal.calendarEvents()).toHaveLength(12)
+    exported.length = 0
+    await cal.saveDates('rdcal')
+    expect(exported[0].name).toMatch(/dates\.rdcal$/)
+
+    // Next year: a fresh calendar loads the saved file.
+    ed.dirty = false
+    await cmd.newDocument()
+    cal.insertCalendar({ year: 2027, month: 11 })
+    datesFile = { name: 'family dates.rdcal', bytes: exported[0].bytes }
+    const r = await cal.loadDates('add')
+    expect(r!.added).toBe(12)
+    expect(cal.calendarEvents().find((e) => e.title === 'Grandma Rose')?.year).toBe(1950)
+    // Loading again adds nothing new; Replace swaps the list.
+    expect((await cal.loadDates('add'))!.added).toBe(0)
+    datesFile = { name: 'class.csv', bytes: new TextEncoder().encode('Name,Birthday\nAva,9/3\n') }
+    await cal.loadDates('replace')
+    expect(cal.calendarEvents().map((e) => e.title)).toEqual(['Ava'])
+    cal.deleteEvents([cal.calendarEvents()[0].id])
+    expect(cal.calendarEvents()).toHaveLength(0)
+    ed.undo()
+    expect(cal.calendarEvents()).toHaveLength(1)
+  })
+
+  it('calendar settings change only the selected calendars, and Next steps across the year end', async () => {
+    const cal = await import('@core/calendarCommands')
+    ed.dirty = false
+    await cmd.newDocument()
+    const a = cal.insertCalendar({ year: 2026, month: 12 })
+    cal.insertCalendar({ year: 2026, month: 6 })
+    ed.select([a.id])
+    cal.stepCalendar(1)
+    cal.setCalendarStyle('Bar Color', { headerFill: '#FF0000' })
+    const [first, second] = cal.allCalendars()
+    expect([first.year, first.month, first.style.headerFill]).toEqual([2027, 1, '#FF0000'])
+    expect(second.style.headerFill).not.toBe('#FF0000')
   })
 })

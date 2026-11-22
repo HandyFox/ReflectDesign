@@ -10,8 +10,43 @@ import { useDialogs } from './dialogs/DialogHost'
 import { ExportView, PrintView } from './ExportPrint'
 import { STARTER_TEMPLATES, type StarterTemplate } from '@core/templates/starters'
 import { CARD_PRESETS, isQuarterFold, isTopFold } from '@core/model/card'
+import { CALENDAR_DESIGNS, buildCalendarDocument, suggestedStart, type CalendarDesign } from '@core/calendar/build'
+import { HOLIDAY_SETS, makeEvent } from '@core/calendar/dates'
 
 const starterThumbs = new Map<string, string>()
+
+/** File › New › Calendars: a design, previewed with next year's first month and US holidays. */
+function CalendarDesignCard({ d }: { d: CalendarDesign }) {
+  const dialogs = useDialogs()
+  const key = `calendar:${d.id}`
+  const [src, setSrc] = useState(starterThumbs.get(key))
+  useEffect(() => {
+    if (src) return
+    const start = suggestedStart()
+    const doc = buildCalendarDocument({
+      design: d.id, themeId: d.theme, ...start, months: 1, weekStart: 0, cover: false,
+      events: d.id === 'birthdays' ? SAMPLE_BIRTHDAYS() : HOLIDAY_SETS[0].events()
+    })
+    cmd.pageThumbnail(doc, 0, 220).then((png) => {
+      if (!png) return
+      const url = URL.createObjectURL(new Blob([png as BlobPart], { type: 'image/png' }))
+      starterThumbs.set(key, url)
+      setSrc(url)
+    })
+  }, [d, src])
+  return (
+    <button className="tpl" title={d.description} onClick={() => dialogs.open('newCalendar', d.id)}>
+      <div className="tpl-thumb">{src ? <img src={src} alt="" /> : <div style={thumbBox(d.width, d.height)} />}</div>
+      <div className="tpl-name">{d.name}</div>
+    </button>
+  )
+}
+
+/** Made-up names, only for the Birthday Board preview picture. */
+const SAMPLE_BIRTHDAYS = () => [
+  ['Ava', 1, 9], ['Liam', 2, 14], ['Noah', 3, 3], ['Mia', 4, 22], ['Ella', 5, 30], ['Leo', 6, 8], ['Zoe', 7, 19],
+  ['Max', 8, 2], ['Ivy', 9, 25], ['Sam', 10, 11], ['Ruby', 11, 6], ['Owen', 12, 17], ['Lily', 3, 21], ['Eli', 9, 9]
+].map(([title, month, day]) => makeEvent({ title: title as string, kind: 'birthday', month: month as number, day: day as number }))
 
 function StarterCard({ t }: { t: StarterTemplate }) {
   const [src, setSrc] = useState(starterThumbs.get(t.id))
@@ -197,6 +232,10 @@ function NewView() {
         <button className="tpl" onClick={() => setMore(!more)}>
           <div className="tpl-thumb more">{more ? 'Fewer' : 'More Blank Page Sizes'}</div>
         </button>
+      </div>
+      <h2>Calendars</h2>
+      <div className="tpl-grid">
+        {CALENDAR_DESIGNS.map((d) => <CalendarDesignCard key={d.id} d={d} />)}
       </div>
       <h2>Greeting Cards</h2>
       <div className="tpl-grid">

@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import {
-  BringToFront, ClipboardPaste, Copy, Group, Scissors, SendToBack, Trash2, Ungroup, TextCursorInput, Lock, ChevronsUp, ChevronsDown, Blend
-} from 'lucide-react'
+  BringToFront, ClipboardPaste, Copy, Group, Scissors, SendToBack, Trash2, Ungroup, TextCursorInput, Lock, ChevronsUp, ChevronsDown, Blend, CalendarDays, CalendarRange } from 'lucide-react'
 import type { SceneObject } from '@core/model/types'
 import { useDialogs } from './dialogs/DialogHost'
 import { editor as ed } from '@core/editor'
@@ -14,6 +13,7 @@ function formatLabel(objs: SceneObject[]): string {
   const types = new Set(objs.map((o) => o.type))
   if (types.size === 1 && types.has('text')) return 'Format Text Box...'
   if (types.size === 1 && types.has('picture')) return 'Format Picture...'
+  if (types.size === 1 && types.has('calendar')) return 'Format Calendar Size and Position...'
   if (types.size === 1 && types.has('shape')) return 'Format AutoShape...'
   return 'Format Object...'
 }
@@ -63,7 +63,13 @@ export function ContextMenu({ x, y, onClose, spell }: { x: number; y: number; on
           <MenuItem icon={SendToBack} label="Send to Back" onClick={run(cmd.arrange.sendToBack)} />
           <MenuSeparator />
           <MenuItem icon={Lock} label={single?.locked ? 'Unlock Position' : 'Lock Position'} onClick={run(cmd.lockToggle)} />
-          <MenuItem icon={Blend} label={formatLabel(objs)} onClick={run(() => dialogs.open('format'))} />
+          {objs.every((o) => o.type === 'calendar') && (
+            <>
+              <MenuItem icon={CalendarDays} label="Calendar Dates..." onClick={run(() => dialogs.open('calendarDates'))} />
+              <MenuItem icon={CalendarRange} label="Change Year..." onClick={run(() => dialogs.open('calendarYear'))} />
+            </>
+          )}
+          <MenuItem icon={Blend} label={formatLabel(objs)} onClick={run(() => dialogs.open('format', objs.every((o) => o.type === 'calendar') ? 'size' : undefined))} />
           <MenuItem icon={Trash2} label="Delete Object" shortcut="Del" onClick={run(() => cmd.deleteSelection())} />
         </>
       )}

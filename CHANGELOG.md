@@ -3,6 +3,95 @@
 What has changed in ReflectDesign, newest first. Each fix has a regression
 test in `tests/fixes.test.ts` or `tests/commands.test.ts`, except where noted.
 
+## 2026-11-21 (late evening) — Calendars
+
+### New features
+
+- **Calendars that draw themselves.** A calendar is a new kind of object.
+  Change its month or year, or add a birthday, and it redraws at once,
+  on screen and in print. Three layouts:
+  - **Month**: the classic grid, with each date's birthdays and events written
+    in its box. A crowded box uses smaller text, and only then says "+2 more".
+  - **Year at a Glance**: 12 small months, with the days that have dates
+    marked.
+  - **List of Dates by Month**: 12 boxes listing each month's dates, for
+    example a classroom **birthday board** that works every year.
+- **Calendar dates (Calendar Tools › Calendar Dates, or double-click a
+  calendar).** One list of birthdays, anniversaries, holidays, events and
+  reminders for the whole publication. Every calendar in it shows them.
+  - **Dates carry over from year to year.** Birthdays and other yearly dates
+    are stored without a year, so they land on the right day in any year.
+    Give a birth year to show "Sam (turns 9)" or "Mom & Dad (26 years)".
+    29 February birthdays show on the 28th in other years.
+  - **Holidays that move are worked out for each year**: "4th Thursday of
+    November" (Thanksgiving), "last Monday of May" (Memorial Day), and dates
+    based on Easter.
+  - **Ready-made lists:** the 11 US federal holidays, popular US days
+    (Valentine's Day, Easter, Mother's Day, Halloween…) and classroom days.
+    Adding a list twice doesn't add anything twice.
+  - **One-time events** (a field trip on 8 May 2027) appear only in their
+    year.
+- **Saving and loading dates (Save Dates / Load Dates)**, so next year's
+  calendar starts with everyone's birthdays:
+  - **ReflectDesign dates (.rdcal)**: everything, exactly. Best for year to
+    year.
+  - **Last year's calendar (.rdx)**: load the dates straight out of it.
+  - **iCalendar (.ics)**: to and from Google Calendar, Outlook and Apple
+    Calendar. Birthdays and holidays are saved as yearly repeating events.
+    Events that repeat weekly, monthly or daily are skipped, with a note
+    saying how many.
+  - **Spreadsheet (.csv)**: to and from Excel, LibreOffice or Google Sheets.
+    A simple two-column "Name, Birthday" sheet works. Dates can be written as
+    3/14, 3/14/2015, 2015-03-14, March 14, 14 March, or "4th Thursday of
+    November". Rows that can't be read are listed.
+  - **Add or Replace**: loading adds only the dates that aren't already
+    there, or replaces the whole list.
+- **New calendar publications (File › New › Calendars)**, with a live
+  preview. Pick the design, colours, first month and year, number of months
+  (1–24, so school-year calendars from August work), whether weeks start on
+  Sunday or Monday, and which dates to include: holiday lists, the open
+  publication's dates, or dates loaded from a file. Five designs:
+  - **Picture Wall Calendar**: a picture above each month, with a cover page.
+  - **Monthly Planner**: big boxes to write in.
+  - **Year at a Glance**
+  - **Birthday Board**
+  - **Classroom Wall Calendar**: 24 × 18" for the bulletin board.
+- **Insert › Calendar**: This Month, Next Month, Year at a Glance, Birthdays
+  by Month, or a whole new calendar publication.
+- **Calendar Tools tab** (appears when a calendar is selected):
+  - **Dates**: Calendar Dates, Add Holidays, Load Dates, Save Dates.
+  - **Month**: previous and next month, pick a month and year, and **Change
+    Year**, which moves every calendar in the publication together. It also
+    updates page names like "January 2027" and the cover's year title.
+  - **Layout**: Month, Year or List; week starts; day names (Sunday / Sun /
+    S); where the date number sits; title on or off, or your own title text;
+    dates on or off; which kinds of dates to show (for example only
+    birthdays); and faded dates from the months before and after.
+  - **Style**: six colour themes (Classic Blue, Bright Classroom, Modern
+    Minimal, Garden, Sunset, and Black & White to save ink), plus colours for
+    the day-names bar, title, numbers, lines, weekends, boxes and date text,
+    line weight, and the title and text fonts.
+- Calendars print and export to PDF exactly as they look, and their fonts
+  are included in the PDF.
+
+### How calendars were checked
+
+`tests/calendar.test.ts` checks:
+- the date maths against real dates (the 2027 federal holidays published by
+  OPM, and Easter 2024–2027);
+- that every layout keeps everything inside the calendar at several sizes;
+- that the .rdcal, .ics and .csv formats all bring dates back exactly,
+  including moving holidays, Easter-based dates, leap-day birthdays and birth
+  years;
+- that a Google Calendar export and a plain "Name, Birthday" spreadsheet
+  import correctly;
+- that dates can be loaded from a saved publication.
+
+`tests/commands.test.ts` covers inserting calendars, editing dates, holiday
+lists, saving the dates and loading them into "next year's" calendar, Change
+Year (with undo), and the calendar settings. Every design was also created
+in the running app, with dates loaded from a spreadsheet, and exported to PDF.
+
 ## 2026-11-21 (evening) — Greeting cards
 
 ### New features
