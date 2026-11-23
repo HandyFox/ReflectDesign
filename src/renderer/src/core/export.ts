@@ -4,7 +4,9 @@ import { editor as ed } from './editor'
 import { boundsOfObjects } from './model/factory'
 import type { Page, SceneObject } from './model/types'
 import { drawObjects, renderPage, type RenderEnv } from './render/canvas'
-import { cardSheets, fitPageToSheet, pageToSvg, sheetsToHtml, tilePage, type PrintSheet, type SvgEnv } from './render/svg'
+import { cardSheets, fitPageToSheet, pageToSvg, posterSheets, sheetsToHtml, type PrintSheet, type SvgEnv } from './render/svg'
+import { DEFAULT_POSTER, PAPER_SIZES, lowestPictureDpi, planPoster, type PosterPlan, type PosterSettings } from './poster'
+import { formatLength } from './model/units'
 import { cardPlan, cardsOf, sheetFor, type CardPlan } from './model/card'
 import { platform } from '../platform'
 import { fontFaceCss } from './fontRegistry'
@@ -20,20 +22,12 @@ function pagesFor(which: 'all' | 'current'): Page[] {
 
 // ---------- PDF ----------
 
-export interface PdfOptions {
-  pages: 'all' | 'current'
-  /** Add bleed and crop marks for a commercial printer. */
-  bleedAndMarks: boolean
-}
-
-export async function exportPdf(opts: PdfOptions): Promise<string | null> {
-  const env = svgEnv()
-  const bleed = opts.bleedAndMarks ? ed.doc.pageSetup.bleed : 0
-  const sheets: PrintSheet[] = pagesFor(opts.pages).map((p) => {
-    const r = pageToSvg(env, p, { bleed, marks: opts.bleedAndMarks })
-    return { svg: r.svg, width: r.width, height: r.height }
-  })
-  const path = await platform.exportPdf(sheetsToHtml(sheets, fontFaceCss(ed.doc)), `${ed.fileName}.pdf`)
+/** File › Export › PDF. */
+export async function exportPdf(o: SheetOptions): Promise<string | null> {
+  const sheets = buildSheets(o)
+  if (!sheets.length) return null
+  const suffix = o.layout === 'poster' ? ` (${sheets.length} sheets, ${o.paper.name.replace(/ \(.*\)$/, '')})` : o.layout === 'fit' ? ` (${o.paper.name.replace(/ \(.*\)$/, '')})` : ''
+  const path = await platform.exportPdf(sheetsToHtml(sheets, fontFaceCss(ed.doc)), `${ed.fileName}${suffix}.pdf`)
   if (path) ed.setStatus(`Saved PDF: ${path}`)
   return path
 }
@@ -123,77 +117,115 @@ export async function exportImage(opts: ImageOptions): Promise<string | null> {
   return path
 }
 
-// ---------- printing ----------
+// ---------- printing and exporting on paper ----------
 
-export interface PaperSize {
+export interface PaperChoice {
   name: string
   width: number
   height: number
 }
 
-export const PAPERS: PaperSize[] = [
-  { name: 'Letter (8.5 × 11")', width: 612, height: 792 },
-  { name: 'Legal (8.5 × 14")', width: 612, height: 1008 },
-  { name: 'Tabloid (11 × 17")', width: 792, height: 1224 },
-  { name: 'A4', width: 595.28, height: 841.89 },
-  { name: 'A3', width: 841.89, height: 1190.55 }
-]
+/** Paper sizes for printing (all common sizes; see core/poster.ts). */
+export const PAPERS: PaperChoice[] = PAPER_SIZES.map((p) => ({ name: p.name, width: p.width, height: p.height }))
 
-export interface PrintOptions {
+/**
+ * How pages go onto paper, for both File › Print and File › Export › PDF:
+ * - design: one sheet per page, at the design's own size (PDF only);
+ * - fit: each page shrunk or enlarged onto one sheet;
+ * - poster: each page at the chosen size, split across as many sheets as it
+ *   needs, with cut marks, line-up marks, labels and an assembly guide.
+ */
+export interface SheetOptions {
   pages: 'all' | 'current'
-  paper: PaperSize
-  orientation: 'portrait' | 'landscape'
-  /** actual: print at full size (tiled if larger than the paper); fit: shrink onto one sheet. */
-  layout: 'actual' | 'fit'
-  overlap: number
-  /** Space printers can't print on. */
-  margin: number
+  layout: 'design' | 'fit' | 'poster'
+  paper: PaperChoice
+  poster: Omit<PosterSettings, 'paper'>
+  /** Bleed and crop marks for a commercial printer (design layout only). */
+  bleedAndMarks: boolean
 }
 
-function paperDims(o: PrintOptions) {
-  const { width, height } = o.paper
-  return o.orientation === 'landscape' ? { w: Math.max(width, height), h: Math.min(width, height) } : { w: Math.min(width, height), h: Math.max(width, height) }
+export function defaultSheetOptions(layout: SheetOptions['layout'] = 'poster'): SheetOptions {
+  // Letter in the US, A4 elsewhere (by the units the person uses).
+  const metric = ed.unit === 'cm' || ed.unit === 'mm'
+  const paper = PAPERS.find((p) => p.name.startsWith(metric ? 'A4' : 'Letter'))!
+  return { pages: 'all', layout, paper, poster: { ...DEFAULT_POSTER }, bleedAndMarks: false }
 }
 
-/** How many sheets each page takes when tiled. */
-export function tileCount(o: PrintOptions): { cols: number; rows: number } {
-  const { w, h } = paperDims(o)
+export function posterSettings(o: SheetOptions): PosterSettings {
+  return { ...o.poster, paper: { width: o.paper.width, height: o.paper.height } }
+}
+
+/** How the open publication's pages split into sheets (all pages are the same size). */
+export function currentPosterPlan(o: SheetOptions): PosterPlan | null {
   const { width, height } = ed.doc.pageSetup
-  if (o.layout === 'fit' || (width <= w - o.margin * 2 && height <= h - o.margin * 2)) return { cols: 1, rows: 1 }
-  const stepX = w - o.margin * 2 - o.overlap, stepY = h - o.margin * 2 - o.overlap
-  return { cols: Math.max(1, Math.ceil((width - o.overlap) / stepX)), rows: Math.max(1, Math.ceil((height - o.overlap) / stepY)) }
+  return planPoster(width, height, posterSettings(o))
 }
 
-export function buildPrintSheets(o: PrintOptions): PrintSheet[] {
+/** Paper orientation for "fit on one sheet": as chosen, or the design's own. */
+function fitSheet(o: SheetOptions): { w: number; h: number } {
+  const short = Math.min(o.paper.width, o.paper.height), long = Math.max(o.paper.width, o.paper.height)
+  const { width, height } = ed.doc.pageSetup
+  const landscape = o.poster.orientation === 'auto' ? width > height : o.poster.orientation === 'landscape'
+  return landscape ? { w: long, h: short } : { w: short, h: long }
+}
+
+/** Size of the sheets that will come out, and how many. */
+export function sheetSummary(o: SheetOptions): { width: number; height: number; sheets: number; perPage: number; plan: PosterPlan | null } {
+  const pages = o.pages === 'all' ? ed.doc.pages.length : 1
+  if (o.layout === 'design') return { width: ed.doc.pageSetup.width, height: ed.doc.pageSetup.height, sheets: pages, perPage: 1, plan: null }
+  if (o.layout === 'fit') { const f = fitSheet(o); return { width: f.w, height: f.h, sheets: pages, perPage: 1, plan: null } }
+  const plan = currentPosterPlan(o)
+  if (!plan) return { width: o.paper.width, height: o.paper.height, sheets: 0, perPage: 0, plan: null }
+  return { width: plan.sheetWidth, height: plan.sheetHeight, sheets: plan.sheetCount * pages, perPage: plan.sheetCount, plan }
+}
+
+export function buildSheets(o: SheetOptions): PrintSheet[] {
   const env = svgEnv()
-  const { w, h } = paperDims(o)
-  const sheets: PrintSheet[] = []
-  pagesFor(o.pages).forEach((p, i) => {
-    const page = pageToSvg(env, p)
-    const fits = page.width <= w - o.margin * 2 && page.height <= h - o.margin * 2
-    if (o.layout === 'fit' || fits) {
-      if (fits && o.layout === 'actual') {
-        // Centre at actual size.
-        sheets.push(fitPageToSheetActual(page, w, h))
-      } else sheets.push(fitPageToSheet(page, w, h, o.margin))
-    } else {
-      const label = `${ed.fileName} page ${o.pages === 'all' ? i + 1 : ed.pageIndex + 1}`
-      sheets.push(...tilePage(page, { paperWidth: w, paperHeight: h, margin: o.margin, overlap: o.overlap }, label))
-    }
+  const pages = pagesFor(o.pages)
+  if (o.layout === 'design') {
+    const bleed = o.bleedAndMarks ? ed.doc.pageSetup.bleed : 0
+    return pages.map((p) => { const r = pageToSvg(env, p, { bleed, marks: o.bleedAndMarks }); return { svg: r.svg, width: r.width, height: r.height } })
+  }
+  if (o.layout === 'fit') {
+    const { w, h } = fitSheet(o)
+    return pages.map((p) => fitPageToSheet(pageToSvg(env, p), w, h, o.poster.margin))
+  }
+  const s = posterSettings(o)
+  const plan = currentPosterPlan(o)
+  if (!plan) throw new Error('The paper is too small for these margins. Choose larger paper or smaller margins.')
+  const multi = pages.length > 1
+  return pages.flatMap((p) => {
+    const index = ed.doc.pages.indexOf(p) + 1
+    const title = multi || o.pages === 'current' && ed.doc.pages.length > 1 ? `${ed.fileName}, page ${index}` : ed.fileName
+    return posterSheets(pageToSvg(env, p), plan, s, { title, fmt: (pt) => formatLength(pt, ed.unit === 'pt' ? 'in' : ed.unit), paperName: o.paper.name.replace(/ \(.*\)$/, '') })
   })
-  return sheets
 }
 
-function fitPageToSheetActual(page: { svg: string; width: number; height: number }, w: number, h: number): PrintSheet {
-  // fitPageToSheet with a margin that makes the scale exactly 1.
-  const m = Math.min((w - page.width) / 2, (h - page.height) / 2)
-  return fitPageToSheet(page, w, h, Math.max(0, m))
+export async function printSheets(o: SheetOptions): Promise<boolean> {
+  const sheets = buildSheets(o)
+  if (!sheets.length) return false
+  return platform.printHtml(sheetsToHtml(sheets, fontFaceCss(ed.doc)), sheets[0].width, sheets[0].height)
 }
 
-export async function printDocument(o: PrintOptions): Promise<boolean> {
-  const sheets = buildPrintSheets(o)
-  const { w, h } = paperDims(o)
-  return platform.printHtml(sheetsToHtml(sheets, fontFaceCss(ed.doc)), w, h)
+/**
+ * The lowest resolution the pictures will print at with these options, in
+ * dots per inch (null if there are no pictures). Below about 150 they look soft.
+ */
+export function pictureDpi(o: SheetOptions): number | null {
+  const scale = o.layout === 'poster' ? currentPosterPlan(o)?.scale ?? 1
+    : o.layout === 'fit' ? (() => {
+      const { w, h } = fitSheet(o)
+      const { width, height } = ed.doc.pageSetup
+      return Math.min((w - o.poster.margin * 2) / width, (h - o.poster.margin * 2) / height)
+    })() : 1
+  const pics: Array<{ pixelWidth: number; widthPt: number; cropLeft: number; cropRight: number }> = []
+  const walk = (list: SceneObject[]) => list.forEach((obj) => {
+    if (obj.type === 'picture' && obj.assetId && ed.doc.assets[obj.assetId]) {
+      pics.push({ pixelWidth: ed.doc.assets[obj.assetId].pixelWidth, widthPt: obj.width, cropLeft: obj.crop.left, cropRight: obj.crop.right })
+    } else if (obj.type === 'group') walk(obj.children)
+  })
+  for (const p of pagesFor(o.pages)) walk(p.objects)
+  return lowestPictureDpi(pics, scale)
 }
 
 // ---------- greeting cards ----------

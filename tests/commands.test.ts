@@ -15,11 +15,13 @@ g.alert = (msg: string) => { throw new Error(`unexpected alert: ${msg}`) }
 const saved: Array<{ name: string; bytes: Uint8Array }> = []
 let unsavedAnswer: 'save' | 'discard' | 'cancel' = 'discard'
 let datesFile: { name: string; bytes: Uint8Array } | null = null
+const pdfs: Array<{ html: string; name: string }> = []
 const exported: Array<{ name: string; bytes: Uint8Array }> = []
 g.reflect = {
   platform: 'test',
   openDatesFile: async () => (datesFile ? { path: `/tmp/${datesFile.name}`, ...datesFile } : null),
   saveExport: async (bytes: Uint8Array, name: string) => { exported.push({ name, bytes }); return `/tmp/${name}` },
+  exportPdf: async (html: string, name: string) => { pdfs.push({ html, name }); return `/tmp/${name}` },
   saveTemplate: async (bytes: Uint8Array, name: string) => { saved.push({ name, bytes }); return `/templates/${name}.rdt` },
   listTemplates: async () => saved.map((s) => ({ id: s.name, name: s.name, category: 'Personal', description: '', builtIn: false, path: '' })),
   askUnsaved: async () => unsavedAnswer,
@@ -259,5 +261,29 @@ describe('calendars', () => {
     const [first, second] = cal.allCalendars()
     expect([first.year, first.month, first.style.headerFill]).toEqual([2027, 1, '#FF0000'])
     expect(second.style.headerFill).not.toBe('#FF0000')
+  })
+})
+
+describe('exporting on smaller paper', () => {
+  it('a 24 × 36" poster exports as a guide page plus one page per sheet', async () => {
+    const ex = await import('@core/export')
+    const { paperById } = await import('@core/poster')
+    ed.dirty = false
+    await cmd.newDocument(24 * 72, 36 * 72)
+    cmd.insertTextBox({ x: 72, y: 72, width: 1500, height: 300 }, 'BIG TITLE')
+    const tabloid = paperById('tabloid')!
+    const o = { ...ex.defaultSheetOptions('poster'), paper: { name: tabloid.name, width: tabloid.width, height: tabloid.height } }
+    const sum = ex.sheetSummary(o)
+    pdfs.length = 0
+    await ex.exportPdf(o)
+    const pages = (pdfs[0].html.match(/class="sheet"/g) ?? []).length
+    expect(pages).toBe(sum.sheets)
+    expect(pages).toBe(sum.plan!.cols * sum.plan!.rows + 1)
+    expect(pdfs[0].name).toMatch(/\(\d+ sheets, Tabloid \/ Ledger\)\.pdf$/)
+    // Fit on one sheet, and the design's own size, still work.
+    pdfs.length = 0
+    await ex.exportPdf({ ...o, layout: 'fit' })
+    await ex.exportPdf({ ...o, layout: 'design' })
+    expect(pdfs.map((p) => (p.html.match(/class="sheet"/g) ?? []).length)).toEqual([1, 1])
   })
 })

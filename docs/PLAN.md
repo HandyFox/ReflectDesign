@@ -146,7 +146,10 @@ Primary platform: **Ubuntu Linux**. Also runs on Windows and macOS.
 - **PNG:** choose DPI (72/150/300/custom) or pixel size, **transparent
   background** option, export whole page or **selected objects only**.
 - JPEG export.
-- Print dialog with **tiling** for printing large designs on letter paper.
+- Print dialog with **tiling** for printing large designs on letter paper. ✔ Done 2026-11-23 (in Print and Export › PDF):
+  common paper sizes, scaling to a finished size, overlap, cut and line-up
+  marks, sheet labels and an assembly guide. Possible next step: reprint a
+  single sheet.
 
 ### 3.10 Files
 - Native format **`.rdx`** — a zip containing `document.json`, images and

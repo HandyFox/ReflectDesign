@@ -3,6 +3,72 @@
 What has changed in ReflectDesign, newest first. Each fix has a regression
 test in `tests/fixes.test.ts` or `tests/commands.test.ts`, except where noted.
 
+## 2026-11-23 — Print big designs on smaller paper
+
+### New features
+
+- **Choose the paper size when exporting a PDF (File › Export).** By
+  default the PDF is still the design's own size. Pick any paper and choose
+  either:
+  - **Full size**: the design is split across as many sheets as it needs,
+    to put together into one big print.
+  - **Fit on one sheet**: each page is shrunk or enlarged to fit.
+- **Common paper sizes, grouped by printer:**
+  - **Home and office:** Letter (8.5 × 11"), Legal (8.5 × 14"), Half
+    Letter (5.5 × 8.5"), A4 and A5.
+  - **Large-format printers and print shops:** Tabloid / Ledger
+    (11 × 17"), Arch B (12 × 18"), Super B / A3+ (13 × 19") and A3.
+  - **Poster printers and plotters:** 18 × 24", 24 × 36", 36 × 48", A2, A1
+    and A0.
+  - **Custom size.**
+- **Make it bigger (or smaller):** print at actual size, a percentage
+  (quick 150%, 200%, 300% and 400% buttons), or a finished width or height.
+  For example, a Letter design 4 feet wide, on Tabloid sheets.
+- **Sheets that fit together perfectly.** Every sheet has:
+  - **cut marks** at the corners showing exactly where to trim;
+  - **line-up marks** (small triangles) showing where the next sheet's cut
+    edge goes;
+  - a **label** (A1, A2, B1…: row letter and column number) and "sheet 3 of
+    8".
+  The marks sit in a narrow band inside the printable area, so they always
+  print. Neighbouring sheets **overlap** (½" by default, or ¼" or 1"), so
+  small cutting errors don't leave gaps. Choose **None** to cut and butt the
+  edges together instead.
+- **Assembly guide page:** the first page shows the whole design with the
+  seams and sheet labels marked, the finished size, the sheet count, and
+  step-by-step instructions.
+- **Fewest sheets automatically:** portrait or landscape paper is chosen to
+  use the fewest sheets, or you can pick one.
+- **Printer edge setting:** 0, ⅛", ¼" (most printers) or ½", for printers
+  that can't print right to the edge.
+- **Live preview** of where the sheets join, with their labels. The screen
+  shows the finished size and sheet count, warns when enlarging would make
+  pictures print below 150 dpi, and has a "How to put it together" list.
+- **File › Print uses the same options.** It replaces the old tiling, which
+  had no cut marks, labels or guide.
+
+### Fixed
+
+- Printing a design on paper of the same size (a Letter flyer on Letter
+  paper) printed it across 2 sheets. It now prints on one sheet, as you'd
+  expect.
+
+### How it was checked
+
+`tests/poster.test.ts` checks:
+- that the sheets cover the whole design with as few sheets as possible;
+- that "automatic" picks the orientation with fewer sheets;
+- the size options (percentage, finished width, finished height);
+- that **every neighbour's piece starts exactly at the line-up marks** (with
+  overlap) or meets it edge to edge (without).
+
+A command test exports a 24 × 36" poster on Tabloid and checks the page
+count. Finally, the 24 × 18" Classroom Wall Calendar was exported on Letter
+paper in the running app, and the 8 sheets were cut and laid together in
+code exactly as the guide says. The result matched a straight export of the
+design pixel for pixel (no noticeable differences), and every overlap strip
+was identical to its neighbour's.
+
 ## 2026-11-21 (late evening) — Calendars
 
 ### New features

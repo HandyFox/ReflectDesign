@@ -4,17 +4,20 @@ import { editor as ed } from '@core/editor'
 import { formatLength } from '@core/model/units'
 import { renderPage } from '@core/render/canvas'
 import {
-  PAPERS, cardSheetSize, cardsToPrint, currentCardPlan, defaultCardOptions, exportCardPdf, exportImage, exportPdf,
-  planImage, printCard, printDocument, tileCount, type CardPrintOptions, type ImageOptions, type PrintOptions
+  PAPERS, cardSheetSize, cardsToPrint, currentCardPlan, defaultCardOptions, defaultSheetOptions, exportCardPdf, exportImage, exportPdf,
+  planImage, printCard, printSheets, sheetSummary, type CardPrintOptions, type ImageOptions, type SheetOptions
 } from '@core/export'
+import { PaperOptions, SheetPreview } from './PaperOptions'
 import { FOLD_NAMES, cardPageNames, sheetFor, type CardPlan } from '@core/model/card'
 
 export function ExportView() {
   const multi = ed.doc.pages.length > 1
-  const [pdfPages, setPdfPages] = useState<'all' | 'current'>('all')
   const card = ed.doc.pageSetup.card
   const [cardPdf, setCardPdf] = useState<'fold' | 'pages'>('fold')
-  const [marks, setMarks] = useState(false)
+  // PDF: the design's own size by default; or any paper, fitted or split into sheets.
+  const [pdf, setPdf] = useState<SheetOptions>(() => defaultSheetOptions('design'))
+  const pdfPages = pdf.pages
+  const setPdfPages = (pages: 'all' | 'current') => setPdf({ ...pdf, pages })
   const [busy, setBusy] = useState<string | null>(null)
   const [img, setImg] = useState<ImageOptions>({ format: 'png', dpi: 300, transparent: false, selectionOnly: false })
   const [custom, setCustom] = useState('300')
@@ -44,13 +47,23 @@ export function ExportView() {
               <label><input type="radio" checked={pdfPages === 'current'} onChange={() => setPdfPages('current')} /> Current page only</label>
             </div>
           )}
-          {!(card && cardPdf === 'fold') && <label className="check-line">
-            <input type="checkbox" checked={marks} onChange={(e) => setMarks(e.target.checked)} />
-            Include bleed ({formatLength(ed.doc.pageSetup.bleed, ed.unit)}) and crop marks — only if your print shop asks for them
-          </label>}
-          <button className="btn primary big" disabled={!!busy} onClick={() => run('pdf', () => (card && cardPdf === 'fold'
+          {!(card && cardPdf === 'fold') && (
+            <div className="pdf-paper">
+              <div>
+                <PaperOptions o={pdf} setO={setPdf} forExport />
+                {pdf.layout === 'design' && (
+                  <label className="check-line">
+                    <input type="checkbox" checked={pdf.bleedAndMarks} onChange={(e) => setPdf({ ...pdf, bleedAndMarks: e.target.checked })} />
+                    Include bleed ({formatLength(ed.doc.pageSetup.bleed, ed.unit)}) and crop marks — only if your print shop asks for them
+                  </label>
+                )}
+              </div>
+              {pdf.layout !== 'design' && <SheetPreview o={pdf} />}
+            </div>
+          )}
+          <button className="btn primary big" disabled={!!busy || (pdf.layout === 'poster' && !sheetSummary(pdf).plan)} onClick={() => run('pdf', () => (card && cardPdf === 'fold'
             ? exportCardPdf(defaultCardOptions())
-            : exportPdf({ pages: pdfPages, bleedAndMarks: marks })))}>
+            : exportPdf(pdf)))}>
             {busy === 'pdf' ? 'Creating PDF…' : 'Create PDF'}
           </button>
         </div>
@@ -104,29 +117,21 @@ export function PrintView() {
 }
 
 function PagePrintView() {
-  const { width, height } = ed.doc.pageSetup
-  const big = width > 612 || height > 792
-  const [o, setO] = useState<PrintOptions>({
-    pages: 'all',
-    paper: PAPERS[0],
-    orientation: width > height ? 'landscape' : 'portrait',
-    layout: 'actual',
-    overlap: 18,
-    margin: 18
-  })
+  const [o, setO] = useState<SheetOptions>(() => defaultSheetOptions('poster'))
   const [busy, setBusy] = useState(false)
-  const t = tileCount(o)
-  const sheetsPerPage = t.cols * t.rows
-  const pages = o.pages === 'all' ? ed.doc.pages.length : 1
+  const sum = sheetSummary(o)
   return (
     <div className="print-view">
       <h1>Print</h1>
       <div className="print-cols">
         <div className="print-settings">
-          <button className="btn primary print-btn" disabled={busy} onClick={async () => { setBusy(true); try { await printDocument(o) } finally { setBusy(false) } }}>
+          <button className="btn primary print-btn" disabled={busy || sum.sheets === 0} onClick={async () => {
+            setBusy(true)
+            try { await printSheets(o) } catch (e) { alert((e as Error).message) } finally { setBusy(false) }
+          }}>
             <Printer size={26} /> <span>{busy ? 'Preparing…' : 'Print'}</span>
           </button>
-          <p className="muted">Your printer, copies and other options are chosen in the next window.</p>
+          <p className="muted">Your printer, copies and other options are chosen in the next window. Print at 100% (“actual size”) there, so the sheets fit together.</p>
           <h3>Settings</h3>
           {ed.doc.pages.length > 1 && (
             <label className="field wide"><span>Pages</span>
@@ -136,76 +141,10 @@ function PagePrintView() {
               </select>
             </label>
           )}
-          <label className="field wide"><span>Paper</span>
-            <select value={o.paper.name} onChange={(e) => setO({ ...o, paper: PAPERS.find((p) => p.name === e.target.value)! })}>
-              {PAPERS.map((p) => <option key={p.name}>{p.name}</option>)}
-            </select>
-          </label>
-          <label className="field wide"><span>Orientation</span>
-            <select value={o.orientation} onChange={(e) => setO({ ...o, orientation: e.target.value as 'portrait' | 'landscape' })}>
-              <option value="portrait">Portrait</option>
-              <option value="landscape">Landscape</option>
-            </select>
-          </label>
-          <label className="field wide"><span>Size</span>
-            <select value={o.layout} onChange={(e) => setO({ ...o, layout: e.target.value as 'actual' | 'fit' })}>
-              <option value="actual">{big ? 'Actual size — tile across sheets' : 'Actual size'}</option>
-              <option value="fit">Fit to one sheet</option>
-            </select>
-          </label>
-          {o.layout === 'actual' && sheetsPerPage > 1 && (
-            <label className="field wide"><span>Overlap</span>
-              <select value={o.overlap} onChange={(e) => setO({ ...o, overlap: Number(e.target.value) })}>
-                {[0, 9, 18, 36, 54].map((v) => <option key={v} value={v}>{formatLength(v, 'in')}</option>)}
-              </select>
-            </label>
-          )}
-          <p className="sheet-count">
-            {sheetsPerPage > 1
-              ? <>Each page prints on <b>{t.cols} × {t.rows} = {sheetsPerPage} sheets</b>. Trim along the dotted lines and tape the pieces together.</>
-              : <>Prints on <b>{pages} sheet{pages > 1 ? 's' : ''}</b>.</>}
-          </p>
+          <PaperOptions o={o} setO={setO} forExport={false} />
         </div>
-        <PrintPreview opts={o} cols={t.cols} rows={t.rows} />
+        <SheetPreview o={o} />
       </div>
-    </div>
-  )
-}
-
-function PrintPreview({ opts, cols, rows }: { opts: PrintOptions; cols: number; rows: number }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    const c = ref.current
-    if (!c) return
-    const { width, height } = ed.doc.pageSetup
-    const box = 420
-    const s = box / Math.max(width, height)
-    const dpr = window.devicePixelRatio || 1
-    c.width = Math.round(width * s * dpr)
-    c.height = Math.round(height * s * dpr)
-    c.style.width = `${Math.round(width * s)}px`
-    c.style.height = `${Math.round(height * s)}px`
-    const ctx = c.getContext('2d')!
-    ctx.setTransform(s * dpr, 0, 0, s * dpr, 0, 0)
-    ed.text.sync(ed.version)
-    renderPage(ctx, { doc: ed.doc, assets: ed.assets, text: ed.text, pxPerPt: s * dpr, forOutput: true }, ed.page)
-    if (cols * rows > 1) {
-      const paper = opts.orientation === 'landscape'
-        ? { w: Math.max(opts.paper.width, opts.paper.height), h: Math.min(opts.paper.width, opts.paper.height) }
-        : { w: Math.min(opts.paper.width, opts.paper.height), h: Math.max(opts.paper.width, opts.paper.height) }
-      const stepX = paper.w - opts.margin * 2 - opts.overlap
-      const stepY = paper.h - opts.margin * 2 - opts.overlap
-      ctx.strokeStyle = 'rgba(192,0,0,0.8)'
-      ctx.lineWidth = 1 / s
-      ctx.setLineDash([4 / s, 3 / s])
-      for (let r = 0; r < rows; r++) for (let col = 0; col < cols; col++) {
-        ctx.strokeRect(col * stepX, r * stepY, paper.w - opts.margin * 2, paper.h - opts.margin * 2)
-      }
-    }
-  }, [opts, cols, rows])
-  return (
-    <div className="print-preview">
-      <canvas ref={ref} />
     </div>
   )
 }
