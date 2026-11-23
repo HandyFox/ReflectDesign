@@ -3,7 +3,7 @@
 // belongs, facing the right way and the right way up.
 
 import { describe, expect, it } from 'vitest'
-import { CARD_PRESETS, FOLD_KINDS, cardPlan, cardsOf, isTopFold, sheetFor, type CardPlan, type FoldKind } from '@core/model/card'
+import { CARD_PRESETS, FOLD_KINDS, cardPlan, cardsOf, imposeCard, isTopFold, printedFold, sheetFor, type CardPlan, type FoldKind } from '@core/model/card'
 
 type V = [number, number, number]
 
@@ -132,6 +132,69 @@ describe('greeting card imposition', () => {
     }
   })
 
+  // Printing a card "in half" on both sides, with copies side by side: every
+  // card on the sheet, outside and inside, must land exactly where the folding
+  // test above proved it has to be.
+  for (const [kind, paper, perSheet, expectCards, expectDuplex] of [
+    // 4.25 × 5.5" side fold: two unfolded cards (8.5 × 5.5") stack on portrait Letter; turn like a book = long edge.
+    ['quarterSide', { width: 612, height: 792 }, 'fill', 2, 'long'],
+    // 5.5 × 4.25" top fold: two (5.5 × 8.5") side by side on landscape Letter; turn like a calendar = long edge.
+    ['quarterTop', { width: 612, height: 792 }, 'fill', 2, 'long'],
+    ['quarterSide', { width: 595.28, height: 841.89 }, 'fill', 2, 'long'],
+    // One per sheet: landscape paper, turned like a book = short edge.
+    ['quarterSide', { width: 612, height: 792 }, 'one', 1, 'short'],
+    ['halfSide', { width: 612, height: 792 }, 'fill', 2, 'long'],
+    ['halfTop', { width: 612, height: 792 }, 'fill', 2, 'long'],
+    // Small cards, several across the direction the sheet turns: the back must be mirrored.
+    ['smallSide', { width: 612, height: 792 }, 'fill', 4, 'short'],
+    ['smallTop', { width: 612, height: 792 }, 'fill', 4, 'short']
+  ] as const) {
+    it(`printed in half on both sides: ${kind} on ${paper.width < 600 ? 'A4' : 'Letter'}, ${perSheet === 'fill' ? 'as many as fit' : 'one per sheet'}`, () => {
+      // smallSide / smallTop: 2.75 × 4.25" half-fold cards (4.25 × 2.75" for the top fold).
+      const small = kind === 'smallSide' || kind === 'smallTop'
+      const kindReal: FoldKind = kind === 'smallSide' ? 'halfSide' : kind === 'smallTop' ? 'halfTop' : kind
+      const [pw, ph] = small ? (kind === 'smallSide' ? [198, 306] : [306, 198]) : isTopFold(kindReal) ? [396, 306] : [306, 396]
+      const w = paper.width < 600 ? pw * 105 / 108 : pw, h = paper.width < 600 ? ph * 148.5 / 153 : ph
+      const fold = printedFold(kindReal, 'half')
+      expect(fold.startsWith('half')).toBe(true)
+      const plan = cardPlan(fold, w, h)
+      const imp = imposeCard(plan, fold, w, h, paper, perSheet)
+      expect(imp.cards).toHaveLength(expectCards)
+      expect(imp.duplex).toBe(expectDuplex)
+      expect(imp.scale).toBe(1)
+      const per = plan.sides[0].panels.length
+      for (let ci = 0; ci < imp.cards.length; ci++) {
+        const origin = imp.cards[ci]
+        // Physical pieces, as the printer puts them on the paper…
+        const pieces: Piece[] = []
+        imp.sides.forEach((side, si) => side.panels.slice(ci * per, ci * per + per).forEach((pl) => {
+          const cx = pl.x + pl.width / 2, cy = pl.y + pl.height / 2
+          const upright: V = pl.rotate === 180 ? [0, 1, 0] : [0, -1, 0]
+          if (si === 0) pieces.push({ slot: pl.slot, p: [cx - origin.x, cy - origin.y, 0], up: upright, normal: [0, 0, 1] })
+          else if (imp.flip === 'vertical') pieces.push({ slot: pl.slot, p: [imp.sheetWidth - cx - origin.x, cy - origin.y, 0], up: [-upright[0], upright[1], 0], normal: [0, 0, -1] })
+          else pieces.push({ slot: pl.slot, p: [cx - origin.x, imp.sheetHeight - cy - origin.y, 0], up: [upright[0], -upright[1], 0], normal: [0, 0, -1] })
+        }))
+        // …must be exactly the card laid out on its own (proven correct above).
+        const expected = layOut(plan, fold, w, h)
+        for (const want of expected) {
+          const got = pieces.find((q) => q.slot === want.slot && near(q.normal, want.normal))!
+          expect(got).toBeDefined()
+          expect(near(got.p, want.p)).toBe(true)
+          expect(near(got.up, want.up)).toBe(true)
+        }
+        // Each card stays on the paper.
+        expect(origin.x).toBeGreaterThanOrEqual(-0.01)
+        expect(origin.x + imp.cardWidth).toBeLessThanOrEqual(imp.sheetWidth + 0.01)
+        expect(origin.y + imp.cardHeight).toBeLessThanOrEqual(imp.sheetHeight + 0.01)
+      }
+    })
+  }
+
+  it('printing as designed keeps the quarter fold', () => {
+    expect(printedFold('quarterSide', 'designed')).toBe('quarterSide')
+    expect(printedFold('halfTop', 'half')).toBe('halfTop')
+  })
+
   it('pages are grouped into cards of four', () => {
     expect(cardsOf(4)).toEqual([[0, 1, 2, 3]])
     expect(cardsOf(6)).toEqual([[0, 1, 2, 3], [4, 5, null, null]])
@@ -182,12 +245,14 @@ describe('card publications', () => {
 
   it('print sheets: one side for quarter-fold, two for half-fold; upside-down panels rotated; marks only with room', () => {
     const page = { svg: '<svg xmlns="http://www.w3.org/2000/svg" width="1pt" height="1pt" viewBox="0 0 10 10"><rect/></svg>', width: 306, height: 396 }
-    const quarter = cardSheets([page, page, page, page], cardPlan('quarterSide', 306, 396), 306, 396, { paperWidth: 612, paperHeight: 792, insideUpsideDown: false, marks: true })
+    const qPlan = cardPlan('quarterSide', 306, 396)
+    const quarter = cardSheets([page, page, page, page], imposeCard(qPlan, 'quarterSide', 306, 396, { width: 612, height: 792 }, 'fill'), qPlan, { insideUpsideDown: false, marks: true })
     expect(quarter).toHaveLength(1)
     expect((quarter[0].svg.match(/rotate\(180/g) ?? []).length).toBe(2)
     expect(quarter[0].svg).not.toContain('<line') // fills the sheet: no room for marks
     const p57 = { ...page, width: 360, height: 504 }
-    const half = cardSheets([p57, p57, null, p57], cardPlan('halfSide', 360, 504), 360, 504, { paperWidth: 792, paperHeight: 612, insideUpsideDown: true, marks: true })
+    const hPlan = cardPlan('halfSide', 360, 504)
+    const half = cardSheets([p57, p57, null, p57], imposeCard(hPlan, 'halfSide', 360, 504, { width: 612, height: 792 }, 'fill'), hPlan, { insideUpsideDown: true, marks: true })
     expect(half).toHaveLength(2)
     expect(half[0].svg).toContain('<line') // trim marks around the 10 × 7" spread
     expect(half[0].svg).toContain('stroke-dasharray') // fold mark

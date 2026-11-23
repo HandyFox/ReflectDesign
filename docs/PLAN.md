@@ -128,6 +128,9 @@ Primary platform: **Ubuntu Linux**. Also runs on Windows and macOS.
 - **Greeting cards** (File > New > Greeting Cards, Page Setup > Layout):
   quarter-fold and half-fold cards, side or top fold, standard sizes, two card
   templates, and printing/PDF laid out ready to fold. ✔ Done 2026-11-21.
+  Quarter-fold cards can also print two-sided and fold once, several copies
+  per sheet, with the right "flip on long/short edge" setting worked out
+  and preset in the print dialog. ✔ Done 2026-11-23.
   Possible next steps: show Inside Left + Inside Right side by side as one
   spread while designing; tri-fold brochures; envelopes.
 - **Calendars** (File > New > Calendars, Insert > Calendar, Calendar Tools):

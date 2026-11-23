@@ -85,7 +85,8 @@ export interface ReflectAPI {
    */
   exportPdf(html: string, suggestedName: string): Promise<string | null>
   /** Open the system print dialog for print-ready HTML. Paper size in points. */
-  printHtml(html: string, paperWidth: number, paperHeight: number): Promise<boolean>
+  /** duplex: preset two-sided printing, flipping on the long or short edge. */
+  printHtml(html: string, paperWidth: number, paperHeight: number, duplex?: 'long' | 'short'): Promise<boolean>
   /** Installed fonts. */
   listFonts(): Promise<SystemFont[]>
   readFontFile(path: string): Promise<Uint8Array>

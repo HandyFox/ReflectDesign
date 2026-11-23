@@ -6,7 +6,7 @@
 import type { CalendarObject, CharStyle, Fill, Page, PictureObject, RDocument, SceneObject, Shadow, ShapeObject, Stroke, TextBoxObject } from '../model/types'
 import { calendarPieces } from './canvas'
 import type { AssetStore } from '../assets'
-import type { CardPlan } from '../model/card'
+import type { CardImposition, CardPlan } from '../model/card'
 import { assemblySteps, pieceArea, rowLetter, sheetLabel, type PosterPlan, type PosterSettings } from '../poster'
 import type { TextEngine } from '../text/engine'
 import { displayText, type LaidLine } from '../text/layout'
@@ -486,38 +486,31 @@ export function posterGuide(page: { svg: string; width: number; height: number }
 }
 
 export interface CardSheetOptions {
-  /** Paper size, already turned to the right orientation (points). */
-  paperWidth: number
-  paperHeight: number
   /** Turn the inside sheet upside down (for printers that flip the other way). */
   insideUpsideDown: boolean
-  /** Trim and fold marks outside the card, when the paper is bigger than the card. */
+  /** Trim and fold marks outside the cards, where the paper leaves room. */
   marks: boolean
 }
 
 /**
- * Lay out a folded greeting card on printer sheets (one sheet side per entry).
- * `pages` holds the rendered card pages by slot (Front, Inside 1, Inside 2,
- * Back); a missing page leaves its panel blank.
+ * A folded greeting card on printer sheets (one entry per side), laid out by
+ * imposeCard (core/model/card.ts). `pages` holds the rendered card pages by
+ * slot (Front, Inside 1, Inside 2, Back); a missing page leaves its panel blank.
  */
-export function cardSheets(pages: Array<{ svg: string; width: number; height: number } | null>, plan: CardPlan,
-  pw: number, ph: number, o: CardSheetOptions): PrintSheet[] {
-  const W = o.paperWidth, H = o.paperHeight
-  // Shrink only if the card doesn't fit on the paper at all.
-  const k = Math.min(1, W / plan.width, H / plan.height)
-  const sw = plan.width * k, sh = plan.height * k
-  const ox = (W - sw) / 2, oy = (H - sh) / 2
-  return plan.sides.map((side, sideIndex) => {
+export function cardSheets(pages: Array<{ svg: string; width: number; height: number } | null>, imp: CardImposition,
+  plan: CardPlan, o: CardSheetOptions): PrintSheet[] {
+  const W = imp.sheetWidth, H = imp.sheetHeight
+  return imp.sides.map((side, sideIndex) => {
     let body = ''
     for (const pl of side.panels) {
       const pg = pages[pl.slot]
       if (!pg) continue
-      const x = ox + pl.x * k, y = oy + pl.y * k, w = pw * k, h = ph * k
       // Each panel is clipped to its own area so nothing spills onto the next one.
-      const inner = placeSvg(pg.svg, x, y, w, h).replace(/^<svg /, '<svg overflow="hidden" ')
-      body += pl.rotate === 180 ? `<g transform="rotate(180 ${n(x + w / 2)} ${n(y + h / 2)})">${inner}</g>` : inner
+      const inner = placeSvg(pg.svg, pl.x, pl.y, pl.width, pl.height).replace(/^<svg /, '<svg overflow="hidden" ')
+      body += pl.rotate === 180 ? `<g transform="rotate(180 ${n(pl.x + pl.width / 2)} ${n(pl.y + pl.height / 2)})">${inner}</g>` : inner
     }
-    if (o.marks) body += cardMarks(plan, ox, oy, sw, sh, k)
+    // Marks go on the first side only, so the two sides never disagree.
+    if (o.marks && sideIndex === 0) body += cardMarks(imp, plan)
     if (sideIndex > 0 && o.insideUpsideDown) body = `<g transform="rotate(180 ${n(W / 2)} ${n(H / 2)})">${body}</g>`
     return {
       svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${n(W)}pt" height="${n(H)}pt" viewBox="0 0 ${n(W)} ${n(H)}">${body}</svg>`,
@@ -527,32 +520,27 @@ export function cardSheets(pages: Array<{ svg: string; width: number; height: nu
   })
 }
 
-/** Trim marks at the corners and dashed fold marks, drawn outside the card only. */
-function cardMarks(plan: CardPlan, ox: number, oy: number, sw: number, sh: number, k: number): string {
-  const gapX = ox, gapY = oy
+/** Trim marks at the cards' edges and dashed fold marks, drawn in the paper's margins only. */
+function cardMarks(imp: CardImposition, plan: CardPlan): string {
+  const W = imp.sheetWidth, H = imp.sheetHeight, cw = imp.cardWidth, ch = imp.cardHeight, k = imp.scale
+  const left = Math.min(...imp.cards.map((c) => c.x)), top = Math.min(...imp.cards.map((c) => c.y))
+  const right = W - Math.max(...imp.cards.map((c) => c.x + cw)), bottom = H - Math.max(...imp.cards.map((c) => c.y + ch))
   const line = (x1: number, y1: number, x2: number, y2: number, dash = '') =>
     `<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="#000" stroke-width="0.5"${dash}/>`
-  let out = ''
   const len = (gap: number) => Math.min(18, gap - 4)
-  if (gapX >= 10) {
-    const L = len(gapX)
-    for (const y of [oy, oy + sh]) out += line(ox - 3 - L, y, ox - 3, y) + line(ox + sw + 3, y, ox + sw + 3 + L, y)
-  }
-  if (gapY >= 10) {
-    const L = len(gapY)
-    for (const x of [ox, ox + sw]) out += line(x, oy - 3 - L, x, oy - 3) + line(x, oy + sh + 3, x, oy + sh + 3 + L)
-  }
-  for (const f of plan.folds) {
-    const dash = ' stroke-dasharray="2 2"'
-    if (f.orientation === 'v' && gapY >= 10) {
-      const x = ox + f.pos * k, L = len(gapY)
-      out += line(x, oy - 3 - L, x, oy - 3, dash) + line(x, oy + sh + 3, x, oy + sh + 3 + L, dash)
-    }
-    if (f.orientation === 'h' && gapX >= 10) {
-      const y = oy + f.pos * k, L = len(gapX)
-      out += line(ox - 3 - L, y, ox - 3, y, dash) + line(ox + sw + 3, y, ox + sw + 3 + L, y, dash)
-    }
-  }
+  const uniq = (v: number[]) => [...new Set(v.map((x) => Math.round(x * 100) / 100))]
+  const xs = uniq(imp.cards.flatMap((c) => [c.x, c.x + cw])), ys = uniq(imp.cards.flatMap((c) => [c.y, c.y + ch]))
+  const dash = ' stroke-dasharray="2 2"'
+  const foldXs = uniq(imp.cards.flatMap((c) => plan.folds.filter((f) => f.orientation === 'v').map((f) => c.x + f.pos * k)))
+  const foldYs = uniq(imp.cards.flatMap((c) => plan.folds.filter((f) => f.orientation === 'h').map((f) => c.y + f.pos * k)))
+  let out = ''
+  // Vertical lines: ticks above and below the cards. Horizontal lines: ticks left and right.
+  const vTicks = (x: number, d = '') => (top >= 10 ? line(x, top - 3 - len(top), x, top - 3, d) : '') + (bottom >= 10 ? line(x, H - bottom + 3, x, H - bottom + 3 + len(bottom), d) : '')
+  const hTicks = (y: number, d = '') => (left >= 10 ? line(left - 3 - len(left), y, left - 3, y, d) : '') + (right >= 10 ? line(W - right + 3, y, W - right + 3 + len(right), y, d) : '')
+  for (const x of xs) out += vTicks(x)
+  for (const y of ys) out += hTicks(y)
+  for (const x of foldXs) out += vTicks(x, dash)
+  for (const y of foldYs) out += hTicks(y, dash)
   return out
 }
 

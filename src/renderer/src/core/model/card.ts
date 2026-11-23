@@ -166,7 +166,7 @@ export function cardPlan(fold: FoldKind, pw: number, ph: number): CardPlan {
         ],
         folds: [{ orientation: 'v', pos: pw }],
         steps: [
-          'Print both sides (two-sided printing, "flip on short edge").',
+          'Print on both sides of the sheet (two-sided printing).',
           'Hold the sheet with the front of the card facing you, then fold the left half back behind it.'
         ]
       }
@@ -179,11 +179,91 @@ export function cardPlan(fold: FoldKind, pw: number, ph: number): CardPlan {
         ],
         folds: [{ orientation: 'h', pos: ph }],
         steps: [
-          'Print both sides (two-sided printing, "flip on short edge").',
+          'Print on both sides of the sheet (two-sided printing).',
           'Hold the sheet with the front of the card facing you, then fold the top half back behind it.'
         ]
       }
   }
+}
+
+// ---------- printing: fold choice and sheet layout ----------
+
+/** Print a card as designed, or a quarter-fold card in half on both sides of the paper. */
+export type FoldChoice = 'designed' | 'half'
+
+/** The fold used for printing. A quarter-fold card printed "in half" becomes the matching half-fold. */
+export function printedFold(fold: FoldKind, choice: FoldChoice): FoldKind {
+  if (choice !== 'half') return fold
+  return fold === 'quarterSide' ? 'halfSide' : fold === 'quarterTop' ? 'halfTop' : fold
+}
+
+export interface PanelOnSheet {
+  slot: CardSlot
+  x: number
+  y: number
+  width: number
+  height: number
+  rotate: 0 | 180
+}
+
+export interface CardImposition {
+  /** Paper as it goes through the printer. */
+  sheetWidth: number
+  sheetHeight: number
+  /** Below 1 only when the unfolded card is bigger than the paper. */
+  scale: number
+  /** Top-left corner of each card (unfolded) on the first side of the sheet. */
+  cards: Array<{ x: number; y: number }>
+  /** Size of one unfolded card on the sheet. */
+  cardWidth: number
+  cardHeight: number
+  /** What goes where, side by side ("Outside"/"Inside", or "Printed side"). */
+  sides: Array<{ name: string; panels: PanelOnSheet[] }>
+  /**
+   * How the sheet turns over between the two sides (two-sided cards):
+   * 'vertical' like a book page, 'horizontal' like a calendar.
+   */
+  flip: 'vertical' | 'horizontal' | null
+  /** The printer setting that turns it that way. */
+  duplex: 'long' | 'short' | null
+}
+
+/**
+ * Lay out a card on the paper: as many copies as fit (or one), the sides of
+ * a two-sided card placed so each inside lands exactly behind its outside.
+ * The flip is the one the card's plan assumes (side folds turn like a book,
+ * top folds like a calendar).
+ */
+export function imposeCard(plan: CardPlan, fold: FoldKind, pw: number, ph: number,
+  paper: { width: number; height: number }, perSheet: 'one' | 'fill'): CardImposition {
+  const fits = (W: number, H: number) => {
+    const cols = Math.floor((W + 0.5) / plan.width), rows = Math.floor((H + 0.5) / plan.height)
+    return { W, H, cols, rows, n: perSheet === 'one' ? Math.min(1, cols * rows) : cols * rows }
+  }
+  const preferred = sheetFor(plan, paper)
+  const options = [fits(preferred.width, preferred.height), fits(preferred.height, preferred.width)]
+  const best = options[1].n > options[0].n ? options[1] : options[0]
+  const W = best.n > 0 ? best.W : preferred.width, H = best.n > 0 ? best.H : preferred.height
+  const k = best.n > 0 ? 1 : Math.min(W / plan.width, H / plan.height)
+  const cw = plan.width * k, ch = plan.height * k
+  let cols = 1, rows = 1
+  if (best.n > 1) { cols = best.cols; rows = best.rows }
+  const ox = (W - cols * cw) / 2, oy = (H - rows * ch) / 2
+  const cards: Array<{ x: number; y: number }> = []
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cards.push({ x: ox + c * cw, y: oy + r * ch })
+  const flip = plan.twoSided ? (isTopFold(fold) ? 'horizontal' : 'vertical') : null
+  const portrait = W < H
+  const duplex = flip === 'vertical' ? (portrait ? 'long' : 'short') : flip === 'horizontal' ? (portrait ? 'short' : 'long') : null
+  const sides = plan.sides.map((side, si) => ({
+    name: side.name,
+    panels: cards.flatMap((cd) => {
+      // The second side is printed on the back: mirror where each card goes.
+      const x0 = si === 0 || flip !== 'vertical' ? cd.x : W - cd.x - cw
+      const y0 = si === 0 || flip !== 'horizontal' ? cd.y : H - cd.y - ch
+      return side.panels.map((pl) => ({ slot: pl.slot, x: x0 + pl.x * k, y: y0 + pl.y * k, width: pw * k, height: ph * k, rotate: pl.rotate }))
+    })
+  }))
+  return { sheetWidth: W, sheetHeight: H, scale: k, cards, cardWidth: cw, cardHeight: ch, sides, flip, duplex }
 }
 
 /** Paper orientation that fits the unfolded card best. */

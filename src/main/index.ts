@@ -237,13 +237,15 @@ function registerIpc(): void {
     return res.filePath
   })
 
-  ipcMain.handle('print-html', async (_e, html: string, paperWidth: number, paperHeight: number) => {
+  ipcMain.handle('print-html', async (_e, html: string, paperWidth: number, paperHeight: number, duplex?: 'long' | 'short') => {
     return withPrintWindow(html, (win) => new Promise<boolean>((resolve) => {
       win.webContents.print(
         {
           silent: false,
           printBackground: true,
           margins: { marginType: 'none' },
+          // Two-sided cards: start the dialog on the right flip (the user can still change it).
+          ...(duplex ? { duplexMode: duplex === 'long' ? 'longEdge' as const : 'shortEdge' as const } : {}),
           // Electron wants microns.
           pageSize: { width: Math.round((paperWidth / 72) * 25400), height: Math.round((paperHeight / 72) * 25400) }
         },

@@ -227,6 +227,10 @@ legend { color: #444; padding: 0 4px; }
 .radio-row { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0; align-items: center; }
 .radio-row label, .check-line { display: flex; align-items: center; gap: 5px; }
 .check-line { margin: 6px 0; }
+.radio-col { border: 0; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 5px; }
+.radio-col legend { font-weight: 600; margin-bottom: 3px; padding: 0; }
+.radio-col label { display: flex; align-items: flex-start; gap: 6px; line-height: 1.35; }
+.radio-col input { margin-top: 2px; }
 .radio-label { color: #444; }
 .small-num { width: 52px; height: 22px; border: 1px solid #adadad; margin-left: 4px; padding: 0 4px; }
 .btn.big { height: 32px; min-width: 140px; margin-top: 8px; background: var(--accent); color: #fff; border-color: var(--accent-dark); }

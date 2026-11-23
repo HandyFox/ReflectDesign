@@ -3,6 +3,50 @@
 What has changed in ReflectDesign, newest first. Each fix has a regression
 test in `tests/fixes.test.ts` or `tests/commands.test.ts`, except where noted.
 
+## 2026-11-23 — Two-sided greeting cards that fold once
+
+### New features
+
+- **Print a quarter-fold card in half, on both sides of the paper (File ›
+  Print › Fold).** Cards like the Birthday Card are designed to fold in
+  fourths, and still can be. The new choice is **In half — prints on both
+  sides, fold once like a store-bought card**:
+  - The outside (Back and Front) prints on one side of the sheet.
+  - The inside (Inside Left and Inside Right) prints on the other side,
+    lined up exactly behind it.
+  - You fold the card once, and the inside is clean paper with no folds
+    running through the writing.
+- **More than one card per sheet (Per sheet).** Cards print as many copies
+  per sheet as fit, or one if you choose. For example, a 4.25 × 5.5" card
+  printed in half gives two cards on each Letter or A4 sheet. The folding
+  steps say where to cut:
+  - along the trim marks when there is room for them;
+  - otherwise the size of each piece ("Cut the sheet in half, into two
+    8.5" × 5.5" pieces").
+- **The right two-sided setting, worked out for you.**
+  - Print tells you whether to **flip on long edge** or **flip on short
+    edge**. This depends on the fold and on which way the paper goes through
+    the printer.
+  - The print dialog now opens with that setting already chosen.
+  - If a test print still comes out with the inside upside down, tick "turn
+    it around".
+- **Two-sided PDF too (File › Export).** Choose **Ready to print on both sides
+  and fold in half**. The file is named "(two-sided, fold in half)".
+- **The print preview shows the whole sheet.** It shows every copy, with
+  each card's edge, its fold line (dashed), and both sides as they will
+  print.
+
+### Tests
+
+- `tests/card.test.ts`: each copy on the sheet is folded in 3D. Every panel
+  must land in the right place, the right way up, with the inside behind
+  the right part of the outside. Cases covered:
+  - side and top folds;
+  - Letter and A4;
+  - one per sheet and as many as fit;
+  - small cards several across the sheet, which checks that the back side
+    is mirrored correctly.
+
 ## 2026-11-23 — Print big designs on smaller paper
 
 ### New features

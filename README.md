@@ -18,7 +18,9 @@ feel like **Microsoft Publisher 2016/2019** on Linux (Ubuntu), Windows and macOS
 - Your system fonts plus a built-in Google Fonts browser
 - Starter templates, Save As Template and New Blank Template
 - Greeting cards: quarter-fold and half-fold, side or top fold, standard card
-  sizes, and printing laid out ready to fold
+  sizes, and printing laid out ready to fold. A quarter-fold card can also be
+  printed on both sides of the paper and folded once, like a store-bought
+  card, with as many copies per sheet as fit
 - Print or export big designs on smaller paper (Letter, Legal, Tabloid
   11 × 17", 12 × 18", 13 × 19", A4, A3 and poster sizes) at any size, with cut
   marks, line-up marks, sheet labels and an assembly guide

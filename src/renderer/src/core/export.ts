@@ -7,7 +7,7 @@ import { drawObjects, renderPage, type RenderEnv } from './render/canvas'
 import { cardSheets, fitPageToSheet, pageToSvg, posterSheets, sheetsToHtml, type PrintSheet, type SvgEnv } from './render/svg'
 import { DEFAULT_POSTER, PAPER_SIZES, lowestPictureDpi, planPoster, type PosterPlan, type PosterSettings } from './poster'
 import { formatLength } from './model/units'
-import { cardPlan, cardsOf, sheetFor, type CardPlan } from './model/card'
+import { cardPlan, cardsOf, imposeCard, printedFold, type CardImposition, type CardPlan, type FoldChoice } from './model/card'
 import { platform } from '../platform'
 import { fontFaceCss } from './fontRegistry'
 
@@ -235,16 +235,20 @@ export interface CardPrintOptions {
   cards: 'all' | 'current'
   /** Paper (either orientation; it is turned to fit the card). */
   paper: { width: number; height: number }
+  /** A quarter-fold card can be printed as designed (one side) or in half on both sides. */
+  fold: FoldChoice
+  /** One card per sheet, or as many copies as fit (then cut them apart). */
+  perSheet: 'one' | 'fill'
   /** Turn the inside sheet upside down (if a test print came out that way). */
   insideUpsideDown: boolean
-  /** Trim and fold marks around the card when the paper is bigger than it. */
+  /** Trim and fold marks around the cards when the paper leaves room. */
   marks: boolean
 }
 
-/** The folded-card layout of the open publication, or null if it isn't a card. */
-export function currentCardPlan(): CardPlan | null {
+/** The folded-card layout the card prints with (null if the publication isn't a card). */
+export function currentCardPlan(o?: Pick<CardPrintOptions, 'fold'>): CardPlan | null {
   const ps = ed.doc.pageSetup
-  return ps.card ? cardPlan(ps.card.fold, ps.width, ps.height) : null
+  return ps.card ? cardPlan(printedFold(ps.card.fold, o?.fold ?? 'designed'), ps.width, ps.height) : null
 }
 
 /** Default print settings for the open card. */
@@ -253,17 +257,26 @@ export function defaultCardOptions(): CardPrintOptions {
   return {
     cards: 'all',
     paper: c ? { width: c.sheetWidth, height: c.sheetHeight } : { width: 612, height: 792 },
+    fold: 'designed',
+    perSheet: 'fill',
     insideUpsideDown: false,
     marks: true
   }
 }
 
+/** Where everything goes on the paper. */
+export function cardImposition(o: CardPrintOptions): CardImposition | null {
+  const ps = ed.doc.pageSetup
+  const plan = currentCardPlan(o)
+  if (!plan || !ps.card) return null
+  return imposeCard(plan, printedFold(ps.card.fold, o.fold), ps.width, ps.height, o.paper, o.perSheet)
+}
+
 /** Paper size and orientation the card prints on, and whether it has to be shrunk. */
 export function cardSheetSize(o: CardPrintOptions): { width: number; height: number; shrinks: boolean } {
-  const plan = currentCardPlan()
-  if (!plan) return { ...o.paper, shrinks: false }
-  const s = sheetFor(plan, o.paper)
-  return { ...s, shrinks: plan.width > s.width + 0.6 || plan.height > s.height + 0.6 }
+  const imp = cardImposition(o)
+  if (!imp) return { ...o.paper, shrinks: false }
+  return { width: imp.sheetWidth, height: imp.sheetHeight, shrinks: imp.scale < 0.999 }
 }
 
 /** Which cards (sets of four page indexes) the options cover. */
@@ -274,29 +287,29 @@ export function cardsToPrint(o: CardPrintOptions): Array<Array<number | null>> {
 
 /** Printer sheets for the card(s), laid out so they read correctly once folded. */
 export function buildCardSheets(o: CardPrintOptions): PrintSheet[] {
-  const plan = currentCardPlan()
-  if (!plan) return []
+  const plan = currentCardPlan(o)
+  const imp = cardImposition(o)
+  if (!plan || !imp) return []
   const env = svgEnv()
-  const { width: pw, height: ph } = ed.doc.pageSetup
-  const sheet = cardSheetSize(o)
   return cardsToPrint(o).flatMap((idx) => {
     const pages = idx.map((i) => (i === null ? null : pageToSvg(env, ed.doc.pages[i])))
-    return cardSheets(pages, plan, pw, ph, { paperWidth: sheet.width, paperHeight: sheet.height, insideUpsideDown: o.insideUpsideDown, marks: o.marks })
+    return cardSheets(pages, imp, plan, { insideUpsideDown: o.insideUpsideDown, marks: o.marks })
   })
 }
 
 export async function printCard(o: CardPrintOptions): Promise<boolean> {
   const sheets = buildCardSheets(o)
   if (!sheets.length) return false
-  const { width, height } = cardSheetSize(o)
-  return platform.printHtml(sheetsToHtml(sheets, fontFaceCss(ed.doc)), width, height)
+  const imp = cardImposition(o)!
+  return platform.printHtml(sheetsToHtml(sheets, fontFaceCss(ed.doc)), imp.sheetWidth, imp.sheetHeight, imp.duplex ?? undefined)
 }
 
 /** A print-ready PDF of the card: the unfolded sheet(s), ready to print and fold. */
 export async function exportCardPdf(o: CardPrintOptions): Promise<string | null> {
   const sheets = buildCardSheets(o)
   if (!sheets.length) return null
-  const path = await platform.exportPdf(sheetsToHtml(sheets, fontFaceCss(ed.doc)), `${ed.fileName} (print and fold).pdf`)
+  const how = currentCardPlan(o)?.twoSided ? 'two-sided, fold in half' : 'print and fold'
+  const path = await platform.exportPdf(sheetsToHtml(sheets, fontFaceCss(ed.doc)), `${ed.fileName} (${how}).pdf`)
   if (path) ed.setStatus(`Saved PDF: ${path}`)
   return path
 }
