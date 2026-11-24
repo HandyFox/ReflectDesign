@@ -152,7 +152,9 @@ Primary platform: **Ubuntu Linux**. Also runs on Windows and macOS.
 - Print dialog with **tiling** for printing large designs on letter paper. ✔ Done 2026-11-23 (in Print and Export › PDF):
   common paper sizes, scaling to a finished size, overlap, cut and line-up
   marks, sheet labels and an assembly guide. Possible next step: reprint a
-  single sheet.
+  single sheet. 2026-11-24: a design as wide (or tall) as the printable
+  area takes one sheet that way, and the overlap shrinks (to ¼" at least)
+  when that saves sheets.
 
 ### 3.10 Files
 - Native format **`.rdx`** — a zip containing `document.json`, images and

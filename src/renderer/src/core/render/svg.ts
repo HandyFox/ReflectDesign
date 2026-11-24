@@ -362,7 +362,7 @@ export function posterSheets(page: { svg: string; width: number; height: number 
   const sheets: PrintSheet[] = []
   const total = plan.cols * plan.rows
   if (s.guide && total > 1) sheets.push(posterGuide(page, plan, info))
-  const W = plan.sheetWidth, H = plan.sheetHeight, i = plan.inset
+  const W = plan.sheetWidth, H = plan.sheetHeight
   if (total === 1) {
     // Fits on one sheet: centred, at the chosen size, nothing to put together.
     const x = (W - plan.posterWidth) / 2, y = (H - plan.posterHeight) / 2
@@ -372,7 +372,7 @@ export function posterSheets(page: { svg: string; width: number; height: number 
   for (let r = 0; r < plan.rows; r++) {
     for (let c = 0; c < plan.cols; c++) {
       const a = pieceArea(plan, r, c)
-      let body = `<svg x="${n(i)}" y="${n(i)}" width="${n(plan.pieceWidth)}" height="${n(plan.pieceHeight)}" viewBox="${n(a.x)} ${n(a.y)} ${n(a.width)} ${n(a.height)}" overflow="hidden">${poster}</svg>`
+      let body = `<svg x="${n(plan.insetX)}" y="${n(plan.insetY)}" width="${n(plan.pieceWidth)}" height="${n(plan.pieceHeight)}" viewBox="${n(a.x)} ${n(a.y)} ${n(a.width)} ${n(a.height)}" overflow="hidden">${poster}</svg>`
       if (s.marks && total > 1) body += posterMarks(plan, s, r, c, info)
       sheets.push({ svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${n(W)}pt" height="${n(H)}pt" viewBox="0 0 ${n(W)} ${n(H)}">${body}</svg>`, width: W, height: H })
     }
@@ -380,46 +380,82 @@ export function posterSheets(page: { svg: string; width: number; height: number 
   return sheets
 }
 
-/** Cut marks, line-up triangles and the label, all in the band around the picture area. */
+/**
+ * Cut marks, line-up triangles and the label, in the band around the picture
+ * area. In a direction with a single sheet there may be no band at the sides
+ * (or top and bottom): the design uses the whole printable width. Then cut
+ * marks become short lines right on the cut, and line-up triangles go inside
+ * the overlap, which ends up hidden under the next sheet.
+ */
 function posterMarks(plan: PosterPlan, s: PosterSettings, r: number, c: number, info: PosterSheetInfo): string {
-  const W = plan.sheetWidth, H = plan.sheetHeight, i = plan.inset, m = s.margin
+  const W = plan.sheetWidth, H = plan.sheetHeight, ix = plan.insetX, iy = plan.insetY, m = s.margin
   const pw = plan.pieceWidth, ph = plan.pieceHeight
   const lastC = c === plan.cols - 1, lastR = r === plan.rows - 1
   const overlap = plan.overlap > 0.5
+  // Is there a band to draw in? (left/right bands for horizontal cuts, top/bottom for vertical ones)
+  const sideBand = ix - m >= 8, topBand = iy - m >= 8
   let out = ''
   const line = (x1: number, y1: number, x2: number, y2: number, w = 0.6) =>
     `<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="#000" stroke-width="${w}"/>`
-  // Vertical cut at x: marks in the top and bottom bands. Horizontal cut at y: left and right bands.
-  const vCut = (x: number) => line(x, m + 1, x, i - 2) + line(x, i + ph + 2, x, H - m - 1)
-  const hCut = (y: number) => line(m + 1, y, i - 2, y) + line(i + pw + 2, y, W - m - 1, y)
+  const tick = Math.min(0.4 * 72, pw / 6, ph / 6)
+  // Vertical cut at x: marks in the top and bottom bands (or short lines on the cut). Horizontal cut at y: left and right bands.
+  const vCut = (x: number) => topBand
+    ? line(x, m + 1, x, iy - 2) + line(x, iy + ph + 2, x, H - m - 1)
+    : line(x, iy, x, iy + tick, 0.4) + line(x, iy + ph - tick, x, iy + ph, 0.4)
+  const hCut = (y: number) => sideBand
+    ? line(m + 1, y, ix - 2, y) + line(ix + pw + 2, y, W - m - 1, y)
+    : line(ix, y, ix + tick, y, 0.4) + line(ix + pw - tick, y, ix + pw, y, 0.4)
   // Where the finished poster ends on this sheet (the last row/column may be partly blank).
-  const posterRight = i + Math.min(pw, plan.posterWidth - c * plan.stepX)
-  const posterBottom = i + Math.min(ph, plan.posterHeight - r * plan.stepY)
+  const posterRight = ix + Math.min(pw, plan.posterWidth - c * plan.stepX)
+  const posterBottom = iy + Math.min(ph, plan.posterHeight - r * plan.stepY)
   // Left / top: the poster's outer edge, or the edge cut off to lay this sheet over its neighbour.
-  out += vCut(i) + hCut(i)
+  // (No band and the poster's own edge: the edge of the printing is the cut.)
+  if (topBand || c > 0) out += vCut(ix)
+  if (sideBand || r > 0) out += hCut(iy)
   // Right / bottom: the poster's outer edge, or (butt joins) the edge that meets the next sheet.
-  if (lastC) out += vCut(posterRight)
-  else if (!overlap) out += vCut(i + pw)
-  if (lastR) out += hCut(posterBottom)
-  else if (!overlap) out += hCut(i + ph)
+  if (lastC) { if (topBand || posterRight < ix + pw - 1) out += vCut(posterRight) } else if (!overlap) out += vCut(ix + pw)
+  if (lastR) { if (sideBand || posterBottom < iy + ph - 1) out += hCut(posterBottom) } else if (!overlap) out += hCut(iy + ph)
   // Line-up marks: where the next sheet's cut edge goes.
   const tri = (pts: Array<[number, number]>) => `<polygon points="${pts.map(([x, y]) => `${n(x)},${n(y)}`).join(' ')}" fill="#000"/>`
-  const t = Math.min(6, (i - m) * 0.4)
+  const inner = Math.min(6, plan.overlap / 2.2) // inside the overlap
   if (overlap && !lastC) {
-    const x = i + plan.stepX
-    out += tri([[x - t, i - 2 - t * 1.4], [x + t, i - 2 - t * 1.4], [x, i - 2]]) + tri([[x - t, i + ph + 2 + t * 1.4], [x + t, i + ph + 2 + t * 1.4], [x, i + ph + 2]])
+    const x = ix + plan.stepX
+    if (topBand) {
+      const t = Math.min(6, (iy - m) * 0.4)
+      out += tri([[x - t, iy - 2 - t * 1.4], [x + t, iy - 2 - t * 1.4], [x, iy - 2]]) + tri([[x - t, iy + ph + 2 + t * 1.4], [x + t, iy + ph + 2 + t * 1.4], [x, iy + ph + 2]])
+    } else {
+      // Pointing left at the line, inside the strip the next sheet covers.
+      const t = inner
+      out += tri([[x + t * 1.4, iy + 2], [x + t * 1.4, iy + 2 + 2 * t], [x, iy + 2 + t]]) + tri([[x + t * 1.4, iy + ph - 2], [x + t * 1.4, iy + ph - 2 - 2 * t], [x, iy + ph - 2 - t]])
+    }
   }
   if (overlap && !lastR) {
-    const y = i + plan.stepY
-    out += tri([[i - 2 - t * 1.4, y - t], [i - 2 - t * 1.4, y + t], [i - 2, y]]) + tri([[i + pw + 2 + t * 1.4, y - t], [i + pw + 2 + t * 1.4, y + t], [i + pw + 2, y]])
+    const y = iy + plan.stepY
+    if (sideBand) {
+      const t = Math.min(6, (ix - m) * 0.4)
+      out += tri([[ix - 2 - t * 1.4, y - t], [ix - 2 - t * 1.4, y + t], [ix - 2, y]]) + tri([[ix + pw + 2 + t * 1.4, y - t], [ix + pw + 2 + t * 1.4, y + t], [ix + pw + 2, y]])
+    } else {
+      // Pointing up at the line, inside the strip the sheet below covers.
+      const t = inner
+      out += tri([[ix + 2, y + t * 1.4], [ix + 2 + 2 * t, y + t * 1.4], [ix + 2 + t, y]]) + tri([[ix + pw - 2, y + t * 1.4], [ix + pw - 2 - 2 * t, y + t * 1.4], [ix + pw - 2 - t, y]])
+    }
   }
-  // Label in the bottom band, clear of the cut mark at the left edge.
+  // Label in the bottom band, clear of the cut mark at the left edge (or up the left band if there is no bottom band).
   const label = sheetLabel(r, c)
   const number = r * plan.cols + c + 1
-  const size = Math.min(9, (i - m) * 0.5)
-  const y = H - m - (i - m) / 2 + size * 0.35
-  out += `<text x="${n(i + 8)}" y="${n(y)}" font-family="sans-serif" font-size="${n(size)}" font-weight="bold" fill="#000">${esc(label)}</text>`
-  out += `<text x="${n(i + 8 + size * 2.2)}" y="${n(y)}" font-family="sans-serif" font-size="${n(size * 0.78)}" fill="#555">${esc(`Row ${rowLetter(r)}, column ${c + 1} · sheet ${number} of ${plan.cols * plan.rows} · ${info.title}`)}</text>`
+  const detail = `Row ${rowLetter(r)}, column ${c + 1} · sheet ${number} of ${plan.cols * plan.rows} · ${info.title}`
+  if (topBand) {
+    const size = Math.min(9, (iy - m) * 0.5)
+    const y = H - m - (iy - m) / 2 + size * 0.35
+    out += `<text x="${n(ix + 8)}" y="${n(y)}" font-family="sans-serif" font-size="${n(size)}" font-weight="bold" fill="#000">${esc(label)}</text>`
+    out += `<text x="${n(ix + 8 + size * 2.2)}" y="${n(y)}" font-family="sans-serif" font-size="${n(size * 0.78)}" fill="#555">${esc(detail)}</text>`
+  } else if (sideBand) {
+    const size = Math.min(9, (ix - m) * 0.5)
+    const x = m + (ix - m) / 2 + size * 0.35
+    const y = iy + ph - 8
+    out += `<g transform="rotate(-90 ${n(x)} ${n(y)})"><text x="${n(x)}" y="${n(y)}" font-family="sans-serif" font-size="${n(size)}" font-weight="bold" fill="#000">${esc(label)}</text>`
+    out += `<text x="${n(x + size * 2.2)}" y="${n(y)}" font-family="sans-serif" font-size="${n(size * 0.78)}" fill="#555">${esc(detail)}</text></g>`
+  }
   return out
 }
 

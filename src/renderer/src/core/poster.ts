@@ -96,12 +96,20 @@ export interface PosterPlan {
   /** Picture area on each sheet. */
   pieceWidth: number
   pieceHeight: number
-  /** Where the picture area starts on the sheet (printer margin + mark band). */
-  inset: number
+  /**
+   * Where the picture area starts on the sheet, across and down. Usually the
+   * printer margin plus the mark band; in a direction with a single sheet
+   * (nothing to join) the band gives way so the design can use the whole
+   * printable width or height.
+   */
+  insetX: number
+  insetY: number
   /** Distance from one piece to the next (piece size minus the overlap). */
   stepX: number
   stepY: number
   overlap: number
+  /** The overlap was made smaller than chosen because that saves sheets. */
+  overlapReduced: boolean
   /** Total sheets, including the guide page. */
   sheetCount: number
 }
@@ -111,21 +119,47 @@ export function posterScale(designW: number, designH: number, s: PosterScale): n
   return Number.isFinite(v) && v > 0 ? v : 1
 }
 
+/** Smallest overlap used when shrinking the chosen one saves a row or column. */
+export const MIN_OVERLAP = 0.25 * IN
+
+/**
+ * One direction (across or down): how many sheets, and where the picture
+ * area sits. `need` is the poster's length, `sheet` the paper's.
+ */
+function axisFor(need: number, sheet: number, s: PosterSettings) {
+  const band = s.marks ? MARK_BAND : 0
+  // One sheet this way: nothing to join, so the band only stays if there is room for it.
+  if (need <= sheet - 2 * s.margin + 0.01) {
+    const inset = Math.max(s.margin, Math.min(s.margin + band, (sheet - need) / 2))
+    return { count: 1, inset, piece: sheet - 2 * inset, maxOverlap: Infinity }
+  }
+  const inset = s.margin + band
+  const piece = sheet - 2 * inset
+  if (piece <= 0) return null
+  // The overlap can't be more than a third of a piece.
+  const wanted = Math.max(0, Math.min(s.overlap, piece / 3))
+  const smallest = Math.min(wanted, MIN_OVERLAP)
+  // Fewest sheets with the smallest overlap allowed…
+  const count = Math.max(2, Math.ceil((need - smallest - 0.01) / (piece - smallest)))
+  // …and the biggest overlap (up to the chosen one) that still covers the poster with that many.
+  const fits = (count * piece - need) / (count - 1)
+  return { count, inset, piece, maxOverlap: Math.max(smallest, Math.min(wanted, Math.floor(fits * 4) / 4)) }
+}
+
 function planFor(posterW: number, posterH: number, sheetW: number, sheetH: number, s: PosterSettings) {
   // Fits on the paper: one sheet, printed the normal way (a Letter flyer on
   // Letter paper). The design's own margins keep it clear of the printer's edge.
   if (posterW <= sheetW + 0.01 && posterH <= sheetH + 0.01) {
-    return { inset: 0, pieceW: sheetW, pieceH: sheetH, overlap: 0, stepX: sheetW, stepY: sheetH, cols: 1, rows: 1 }
+    return { insetX: 0, insetY: 0, pieceW: sheetW, pieceH: sheetH, overlap: 0, stepX: sheetW, stepY: sheetH, cols: 1, rows: 1 }
   }
-  const inset = s.margin + (s.marks ? MARK_BAND : 0)
-  const pieceW = sheetW - inset * 2, pieceH = sheetH - inset * 2
-  if (pieceW <= 0 || pieceH <= 0) return null
-  // The overlap can't be more than a third of a piece.
-  const overlap = Math.max(0, Math.min(s.overlap, pieceW / 3, pieceH / 3))
-  const stepX = pieceW - overlap, stepY = pieceH - overlap
-  const cols = posterW <= pieceW + 0.01 ? 1 : Math.ceil((posterW - overlap - 0.01) / stepX)
-  const rows = posterH <= pieceH + 0.01 ? 1 : Math.ceil((posterH - overlap - 0.01) / stepY)
-  return { inset, pieceW, pieceH, overlap, stepX, stepY, cols, rows }
+  const x = axisFor(posterW, sheetW, s), y = axisFor(posterH, sheetH, s)
+  if (!x || !y) return null
+  // One overlap for both directions. A smaller overlap never needs more sheets.
+  const overlap = x.count === 1 && y.count === 1 ? 0 : Math.min(x.maxOverlap, y.maxOverlap)
+  return {
+    insetX: x.inset, insetY: y.inset, pieceW: x.piece, pieceH: y.piece, overlap,
+    stepX: x.piece - overlap, stepY: y.piece - overlap, cols: x.count, rows: y.count
+  }
 }
 
 /** Split a design into sheets of paper. Returns null if the settings can't work (paper too small). */
@@ -150,8 +184,9 @@ export function planPoster(designW: number, designH: number, s: PosterSettings):
     scale, posterWidth: posterW, posterHeight: posterH,
     sheetWidth: best.w, sheetHeight: best.h, orientation: best.o,
     cols: best.p.cols, rows: best.p.rows,
-    pieceWidth: best.p.pieceW, pieceHeight: best.p.pieceH, inset: best.p.inset,
+    pieceWidth: best.p.pieceW, pieceHeight: best.p.pieceH, insetX: best.p.insetX, insetY: best.p.insetY,
     stepX: best.p.stepX, stepY: best.p.stepY, overlap: best.p.overlap,
+    overlapReduced: best.p.cols * best.p.rows > 1 && best.p.overlap < Math.min(s.overlap, best.p.pieceW / 3, best.p.pieceH / 3) - 0.01,
     sheetCount: best.p.cols * best.p.rows + (s.guide && best.p.cols * best.p.rows > 1 ? 1 : 0)
   }
 }
@@ -179,8 +214,27 @@ export function pieceArea(plan: PosterPlan, r: number, c: number): { x: number; 
 /** Plain-language assembly steps for the guide page and the screen. */
 export function assemblySteps(plan: PosterPlan): string[] {
   if (plan.cols * plan.rows === 1) return []
-  const order = `Lay the sheets out in order: row A along the top (A1, A2…), then row B underneath, and so on.`
+  const oneCol = plan.cols === 1, oneRow = plan.rows === 1
+  const order = oneCol ? 'Lay the sheets out in order from the top: A1, then B1 underneath, then C1, and so on.'
+    : oneRow ? 'Lay the sheets out in order from the left: A1, A2, A3 and so on.'
+    : 'Lay the sheets out in order: row A along the top (A1, A2…), then row B underneath, and so on.'
   if (plan.overlap > 0.5) {
+    if (oneCol) {
+      return [
+        order,
+        'On every sheet except A1, cut off the top edge along the cut marks.',
+        'Lay B1 over A1 so its cut edge sits on the small black triangles near the bottom of A1 (the triangles are hidden once it is in place). The pictures line up exactly. Tape or glue it from the back, then add C1 the same way, and so on.',
+        'Finally, trim the white border around the outside.'
+      ]
+    }
+    if (oneRow) {
+      return [
+        order,
+        'On every sheet except A1, cut off the left edge along the cut marks.',
+        'Lay A2 over A1 so its cut edge sits on the small black triangles near the right edge of A1. The pictures line up exactly. Tape or glue it from the back, then add A3 the same way, and so on.',
+        'Finally, trim the white border around the outside.'
+      ]
+    }
     return [
       order,
       'On every sheet except those in column 1, cut off the left edge along the cut marks. On every sheet except those in row A, cut off the top edge too.',

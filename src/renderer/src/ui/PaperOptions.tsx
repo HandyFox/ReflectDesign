@@ -152,6 +152,7 @@ export function PaperOptions({ o, setO, forExport }: { o: SheetOptions; setO: (o
             {plan.cols * plan.rows > 1
               ? <>on <b>{plan.cols} × {plan.rows} = {plan.cols * plan.rows} sheets</b> of {o.paper.name.replace(/ \(.*\)$/, '')}, {plan.orientation}{o.poster.guide ? ', plus the guide page' : ''}.</>
               : <>— fits on one sheet of {o.paper.name.replace(/ \(.*\)$/, '')}.</>}
+            {plan.overlapReduced && <> The overlap is {f(plan.overlap)} instead of {f(o.poster.overlap)}, so it fits on fewer sheets.</>}
             {ed.doc.pages.length > 1 && o.pages === 'all' && <> For all {ed.doc.pages.length} pages: <b>{sum.sheets} sheets</b>.</>}
           </>
         )}

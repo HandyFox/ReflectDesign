@@ -9,6 +9,7 @@ import { layoutStory, type Measurer } from '@core/text/layout'
 import { TextEngine } from '@core/text/engine'
 import { pageToSvg, sheetsToHtml } from '@core/render/svg'
 import { migrate } from '@core/io/migrate'
+import { safeFileName } from '../src/main/atomic'
 
 const mono: Measurer = {
   measure: (t, s, f) => t.length * s.size * f * 0.5,
@@ -159,5 +160,14 @@ describe('PDF / print SVG', () => {
       if (underline === 'wave') expect(svg).toContain('<polyline')
       else expect((svg.match(/<rect /g) ?? []).length).toBeGreaterThan(5)
     }
+  })
+})
+
+describe('export file names', () => {
+  it('turns slashes into dashes, so "Tabloid / Ledger" is not read as a folder', () => {
+    expect(safeFileName('Publication1 (5 sheets, Tabloid / Ledger).pdf')).toBe('Publication1 (5 sheets, Tabloid-Ledger).pdf')
+    expect(safeFileName('a\\b:c?.png')).toBe('a-b-c-.png')
+    expect(safeFileName('Birthday Card (two-sided, fold in half).pdf')).toBe('Birthday Card (two-sided, fold in half).pdf')
+    expect(safeFileName('..')).toBe('Untitled')
   })
 })

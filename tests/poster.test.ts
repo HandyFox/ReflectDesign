@@ -25,7 +25,8 @@ describe('splitting a design into sheets', () => {
   it('a 24 × 36" poster on Letter: covers everything with as few sheets as possible', () => {
     const plan = planPoster(24 * IN, 36 * IN, settings())!
     expect(plan.scale).toBe(1)
-    expect(plan.inset).toBeCloseTo(0.25 * IN + MARK_BAND)
+    expect(plan.insetX).toBeCloseTo(0.25 * IN + MARK_BAND)
+    expect(plan.insetY).toBeCloseTo(0.25 * IN + MARK_BAND)
     // Covers the whole poster…
     expect((plan.cols - 1) * plan.stepX + plan.pieceWidth).toBeGreaterThanOrEqual(plan.posterWidth)
     expect((plan.rows - 1) * plan.stepY + plan.pieceHeight).toBeGreaterThanOrEqual(plan.posterHeight)
@@ -64,6 +65,38 @@ describe('splitting a design into sheets', () => {
     expect([letterOnLetter.cols, letterOnLetter.rows, letterOnLetter.sheetCount]).toEqual([1, 1, 1])
     // A little bigger than the paper is split.
     expect(planPoster(8.5 * IN, 11.5 * IN, settings())!.cols * planPoster(8.5 * IN, 11.5 * IN, settings())!.rows).toBe(2)
+  })
+
+  it('16.5 × 38.5" on Tabloid: one sheet across (landscape, full printable width), four down', () => {
+    const tabloid = paperById('tabloid')!
+    const s = settings({ paper: tabloid })
+    const plan = planPoster(16.5 * IN, 38.5 * IN, s)!
+    expect([plan.orientation, plan.cols, plan.rows]).toEqual(['landscape', 1, 4])
+    // Nothing to join across, so the picture runs to the printer's edge: 17 − ¼ − ¼ = 16½".
+    expect(plan.insetX).toBeCloseTo(0.25 * IN)
+    expect(plan.pieceWidth).toBeGreaterThanOrEqual(16.5 * IN - 0.01)
+    expect(plan.insetY).toBeCloseTo(0.25 * IN + MARK_BAND)
+    // The ½" overlap would need a fifth row, so it shrinks (not below ¼") to fit in four.
+    expect(plan.overlapReduced).toBe(true)
+    expect(plan.overlap).toBeGreaterThanOrEqual(0.25 * IN)
+    expect(plan.overlap).toBeLessThan(0.5 * IN)
+    expect(3 * plan.stepY + plan.pieceHeight).toBeGreaterThanOrEqual(38.5 * IN)
+    // Asked for portrait, it's 2 across (and the full ½" overlap where it fits).
+    const p = planPoster(16.5 * IN, 38.5 * IN, settings({ paper: tabloid, orientation: 'portrait' }))!
+    expect(p.cols).toBe(2)
+  })
+
+  it('keeps the chosen overlap when a smaller one would not save a sheet', () => {
+    const plan = planPoster(30 * IN, 30 * IN, settings())!
+    expect(plan.overlapReduced).toBe(false)
+    expect(plan.overlap).toBe(0.5 * IN)
+  })
+
+  it('a wide banner one sheet tall uses the full printable height', () => {
+    const plan = planPoster(60 * IN, 8 * IN, settings())!
+    expect([plan.orientation, plan.rows]).toEqual(['landscape', 1])
+    expect(plan.insetY).toBeCloseTo(0.25 * IN)
+    expect(plan.insetX).toBeCloseTo(0.25 * IN + MARK_BAND)
   })
 
   it('returns null when the paper is too small for the margins', () => {
@@ -118,9 +151,43 @@ describe('the sheets fit back together exactly', () => {
     })
   }
 
+  it('with no band at the sides, the line-up marks sit in the overlap that the next sheet covers', () => {
+    const s = settings({ paper: paperById('tabloid')! })
+    const plan = planPoster(16.5 * IN, 38.5 * IN, s)!
+    const tiles = posterSheets(page(16.5 * IN, 38.5 * IN), plan, s, info).slice(1)
+    expect(tiles).toHaveLength(4)
+    for (let r = 0; r < 4; r++) {
+      const a = shown(tiles[r].svg)
+      expect(a.sheetX).toBeCloseTo(0.25 * IN)
+      expect(a.posterX).toBe(0)
+      expect(a.posterY).toBeCloseTo(r * plan.stepY, 3)
+      expect(tiles[r].svg).toContain(`>${rowLetter(r)}1<`)
+      const tris = triangles(tiles[r].svg)
+      if (r === 3) { expect(tris).toHaveLength(0); continue }
+      expect(tris).toHaveLength(2)
+      for (const pts of tris) {
+        // Up-pointing: the tip is the lowest y, on the line where the next sheet's cut edge goes…
+        const tipY = Math.min(...pts.map((q) => q[1]))
+        expect(a.posterY + (tipY - a.sheetY)).toBeCloseTo(shown(tiles[r + 1].svg).posterY, 3)
+        // …and the whole triangle is in the overlap strip and inside the printable width.
+        for (const [x, y] of pts) {
+          expect(y).toBeGreaterThanOrEqual(a.sheetY + plan.stepY - 0.01)
+          expect(y).toBeLessThanOrEqual(a.sheetY + plan.pieceHeight)
+          expect(x).toBeGreaterThanOrEqual(a.sheetX)
+          expect(x).toBeLessThanOrEqual(a.sheetX + a.w)
+        }
+      }
+    }
+    // Every line stays inside the printable area.
+    for (const t of tiles) for (const m of t.svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g)) {
+      for (const x of [+m[1], +m[3]]) { expect(x).toBeGreaterThanOrEqual(0.25 * IN - 0.01); expect(x).toBeLessThanOrEqual(plan.sheetWidth - 0.25 * IN + 0.01) }
+      for (const y of [+m[2], +m[4]]) { expect(y).toBeGreaterThanOrEqual(0.25 * IN - 0.01); expect(y).toBeLessThanOrEqual(plan.sheetHeight - 0.25 * IN + 0.01) }
+    }
+  })
+
   it('without marks, the picture uses the whole printable area', () => {
     const plan = planPoster(30 * IN, 30 * IN, settings({ marks: false }))!
-    expect(plan.inset).toBe(0.25 * IN)
+    expect([plan.insetX, plan.insetY]).toEqual([0.25 * IN, 0.25 * IN])
     const sheets = posterSheets(page(30 * IN, 30 * IN), plan, settings({ marks: false, guide: false }), info)
     expect(sheets).toHaveLength(plan.cols * plan.rows)
     expect(sheets[0].svg).not.toContain('<line')

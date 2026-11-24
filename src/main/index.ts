@@ -6,7 +6,7 @@ import { listSystemFonts } from './fonts'
 import { listTemplates, personalTemplateDir } from './templates'
 import { installGoogleFont, installedGoogleFonts, listGoogleFonts } from './googleFonts'
 import { addRecent, isRecent, listRecent, removeRecent } from './recent'
-import { writeFileAtomic } from './atomic'
+import { writeFileAtomic, safeFileName } from './atomic'
 
 let mainWindow: BrowserWindow | null = null
 let dirty = false
@@ -171,7 +171,7 @@ function registerIpc(): void {
     if (!target) {
       const res = await dialog.showSaveDialog(mainWindow, {
         title: kind === 'rdt' ? 'Save as Template' : 'Save As',
-        defaultPath: suggestedName,
+        defaultPath: safeFileName(suggestedName),
         filters: kind === 'rdt'
           ? [{ name: 'ReflectDesign Template', extensions: ['rdt'] }]
           : [{ name: 'ReflectDesign Publication', extensions: ['rdx'] }]
@@ -204,9 +204,9 @@ function registerIpc(): void {
     if (!mainWindow) return null
     // Automated tests save without a dialog.
     const testDir = process.env['REFLECTDESIGN_TEST_SAVE_DIR']
-    const res = testDir ? { canceled: false, filePath: join(testDir, suggestedName) } : await dialog.showSaveDialog(mainWindow, {
+    const res = testDir ? { canceled: false, filePath: join(testDir, safeFileName(suggestedName)) } : await dialog.showSaveDialog(mainWindow, {
       title: 'Save',
-      defaultPath: suggestedName,
+      defaultPath: safeFileName(suggestedName),
       filters: [{ name: filterName, extensions: [ext] }]
     })
     if (res.canceled || !res.filePath) return null
@@ -219,10 +219,10 @@ function registerIpc(): void {
     // Automated tests save without a dialog.
     const testDir = process.env['REFLECTDESIGN_TEST_SAVE_DIR']
     const res = testDir
-      ? { canceled: false, filePath: join(testDir, suggestedName) }
+      ? { canceled: false, filePath: join(testDir, safeFileName(suggestedName)) }
       : await dialog.showSaveDialog(mainWindow, {
         title: 'Save as PDF',
-        defaultPath: suggestedName,
+        defaultPath: safeFileName(suggestedName),
         filters: [{ name: 'PDF', extensions: ['pdf'] }]
       })
     if (res.canceled || !res.filePath) return null

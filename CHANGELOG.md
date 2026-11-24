@@ -3,6 +3,53 @@
 What has changed in ReflectDesign, newest first. Each fix has a regression
 test in `tests/fixes.test.ts` or `tests/commands.test.ts`, except where noted.
 
+## 2026-11-24 — Big prints use fewer sheets
+
+### Fixes
+
+- **A design as wide as the paper now prints one sheet across.**
+  - **The problem:** a 16.5 × 38.5" design on landscape Tabloid (11 × 17")
+    used to need two sheets across. Every sheet kept a 0.3" band for marks
+    on all four edges, so only 15.9" of each 17" sheet was used.
+  - **The fix:** where there's only one sheet across (or one down), nothing
+    is joined in that direction, so the design now runs out to the
+    printer's edge.
+  - **Result:** 17 − ¼ − ¼ = 16½" fits exactly, and that design now prints
+    on 4 sheets, 1 across × 4 down.
+- **The overlap shrinks a little when that saves sheets.** With the
+  recommended ½" overlap, the same design needed a fifth row (4 sheets
+  cover only 38.1"). Now the overlap is reduced, never below ¼", whenever
+  that saves a row or column. In this case it becomes 0.36" and the design
+  fits on 4 sheets. The Export and Print screens say when this happens.
+- **Line-up marks without a side band.** When a sheet has no band at the
+  sides, its line-up triangles are printed inside the overlap strip. That
+  strip is hidden under the next sheet once the poster is put together.
+  Cut marks become short lines right on the cut.
+- **Assembly steps for a single column or row.** The guide page and the
+  screen now give simpler steps ("Lay B1 over A1…") when the sheets form
+  one column or one row.
+- **Saving a Tabloid PDF failed.**
+  - **The problem:** the suggested file name included "Tabloid / Ledger".
+    The slash was read as a folder, so the save failed (or the file landed
+    under the wrong name).
+  - **The fix:** slashes and other characters that file systems reject now
+    become dashes in every suggested file name. The file is now named
+    "… (5 sheets, Tabloid-Ledger).pdf".
+
+### Tests
+
+- `tests/poster.test.ts`:
+  - 16.5 × 38.5" on Tabloid gives landscape, 1 × 4, with the full printable
+    width and a reduced overlap;
+  - the overlap is kept when shrinking it wouldn't save a sheet;
+  - a wide banner one sheet tall uses the full height;
+  - with no side band, the line-up marks point exactly at the next sheet's
+    edge and lie inside the hidden overlap;
+  - every mark is inside the printable area.
+- `tests/fixes.test.ts`: file names with slashes.
+- Checked in the app: the exported sheets were cut and assembled in code
+  and match the design-size PDF, with no shift at the joins.
+
 ## 2026-11-23 — Two-sided greeting cards that fold once
 
 ### New features
